@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jungle Movie - Mobile English Learner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        .english-text { font-family: 'Arial', sans-serif; direction: ltr; text-align: left; }
+        
+        /* Mobile-First Interactive Words */
+        .lr-word { cursor: pointer; display: inline-block; padding: 0 1px; border-radius: 4px; transition: background 0.2s; }
+        .lr-word:active, .lr-word:hover { background-color: rgba(16, 185, 129, 0.8); color: white !important; }
+        
+        /* Subtitle Overlay strictly for Mobile Video */
+        #videoSubtitleOverlay .subtitle-box {
+            padding: 4px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.85);
+            width: 96%;
+            max-width: 96%;
+            margin: 0 auto;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        #overlayEn { font-size: 14px !important; margin-bottom: 2px !important; line-height: 1.3 !important; }
+        #overlayAr { font-size: 12px !important; line-height: 1.3 !important; color: #34d399 !important; }
+
+        /* Bottom Sheet Dictionary Modal */
+        #dictModalContent {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            width: 100%;
+            border-radius: 20px 20px 0 0;
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding-bottom: env(safe-area-inset-bottom); /* For iPhone X+ notches */
+        }
+        #dictModal.show #dictModalContent { transform: translateY(0); }
+        
+        /* Hide scrollbar for a cleaner app look */
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+        /* Default highlight styles in case user uses standard tags like <mark> */
+        mark { background-color: rgba(250, 204, 21, 0.4); color: inherit; border-radius: 4px; padding: 0 2px; }
+    </style>
+</head>
+<body class="text-gray-800 antialiased overflow-x-hidden">
+
+    <!-- Header -->
+    <header id="mainHeader" class="bg-gradient-to-r from-emerald-700 to-green-600 text-white py-3 px-4 shadow-md relative z-40 transition-all duration-300">
+        <h1 class="text-lg font-bold flex items-center gap-2">
+            <i class="fas fa-graduation-cap"></i> المترجم التفاعلي المحمول
+        </h1>
+        <p class="text-emerald-100 text-[10px] mt-1">ارفع الفيديو والترجمة للبدء</p>
+    </header>
+
+    <!-- Sticky Video & Toolbar Area -->
+    <div id="stickyPlayerArea" class="sticky top-0 z-50 w-full bg-black shadow-lg transition-all duration-300">
+        
+        <!-- Video Container -->
+        <div id="videoMainContainer" class="relative w-full min-h-[75vh] flex flex-col items-center justify-center transition-all duration-300 bg-gray-900">
+            
+            <!-- Setup Form Overlay -->
+            <div id="videoUploadOverlay" class="absolute inset-0 z-20 flex flex-col items-center justify-start bg-gray-900 text-white p-4 overflow-y-auto">
+                <i class="fas fa-film text-4xl text-emerald-500 mb-4 mt-6"></i>
+                
+                <div class="w-full max-w-md space-y-4">
+                    <!-- Video Section -->
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <h3 class="text-emerald-400 font-bold mb-2 text-sm"><i class="fas fa-video"></i> 1. اختر الفيديو</h3>
+                        <div class="flex gap-2 mb-3">
+                            <input type="url" id="videoUrlInput" placeholder="رابط يوتيوب أو MP4..." class="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg p-2 focus:border-emerald-500" dir="ltr">
+                            <button id="loadUrlBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 text-xs font-bold whitespace-nowrap">تشغيل</button>
+                        </div>
+                        <div class="text-center text-gray-500 text-[10px] mb-2">أو من جهازك</div>
+                        <input type="file" id="videoFileInput" accept="video/mp4,video/*" class="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-gray-700 file:text-white"/>
+                    </div>
+
+                    <!-- SRT Section -->
+                    <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        <h3 class="text-blue-400 font-bold mb-2 text-sm"><i class="fas fa-closed-captioning"></i> 2. ملف الترجمة</h3>
+                        <p class="text-[10px] text-gray-300 mb-2">يدعم ملفات SRT العادية وملفات HTML المحتوية على ألوان.</p>
+                        <input type="file" id="subtitleFileInput" accept=".srt,.html,.htm,.txt" class="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white"/>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Media Elements -->
+            <video id="moviePlayer" crossorigin="anonymous" class="w-full h-full object-contain hidden" controls playsinline webkit-playsinline></video>
+            
+            <div id="iframeContainer" class="w-full h-full hidden pointer-events-auto relative">
+                <div id="ytPlayerContainer" class="absolute inset-0 hidden">
+                    <div id="ytPlayer" class="w-full h-full"></div>
+                </div>
+                <iframe id="genericIframe" class="absolute inset-0 w-full h-full border-none bg-black hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>
+            
+            <!-- Video Subtitle Display -->
+            <div id="videoSubtitleOverlay" class="absolute bottom-2 left-0 right-0 z-10 text-center pointer-events-none opacity-0 transition-opacity duration-200">
+                <div class="subtitle-box pointer-events-auto">
+                    <p id="overlayEn" class="text-white font-bold english-text drop-shadow-md"></p>
+                    <p id="overlayAr" class="font-bold drop-shadow-md"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile Smart Toolbar -->
+        <div id="mobileToolbar" class="hidden bg-gray-800 border-t border-gray-900 flex flex-col w-full">
+            <div class="flex justify-between items-center px-2 py-2 w-full gap-1 border-b border-gray-700">
+                <button id="autoPauseBtn" class="flex-1 flex items-center justify-center gap-1 text-emerald-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700">
+                    <i class="fas fa-play-circle" id="autoPauseIcon"></i>
+                    <span id="autoPauseText">إيقاف الجملة (مُعطّل)</span>
+                </button>
+                <div class="flex-1 flex items-center justify-center gap-1 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold text-gray-300 border border-gray-700">
+                    <span title="مزامنة الترجمة">تزامن:</span>
+                    <button onclick="adjustSync(-0.25)" class="text-blue-400 px-1 text-sm">-</button>
+                    <span id="syncValueDisplay" class="w-8 text-center" dir="ltr">0.0s</span>
+                    <button onclick="adjustSync(0.25)" class="text-red-400 px-1 text-sm">+</button>
+                </div>
+                <button onclick="resetApp()" class="flex-1 flex items-center justify-center gap-1 text-red-400 active:text-white bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-gray-700">
+                    <i class="fas fa-trash"></i> تغيير الفيديو
+                </button>
+            </div>
+            <!-- Progress indicator for background translation -->
+            <div id="translationProgress" class="h-1 bg-blue-600 w-0 transition-all duration-300"></div>
+        </div>
+
+    </div>
+
+    <!-- Main Content Area: Subtitle Cards -->
+    <main class="w-full px-2 py-3 pb-24">
+        <div id="conversationList" class="space-y-3 relative z-0">
+            <!-- Initial Empty State -->
+            <div class="text-center bg-white rounded-xl p-8 text-gray-500 shadow-sm border border-gray-200 mt-4">
+                <i class="fas fa-list-alt text-3xl mb-2 text-gray-300"></i>
+                <h3 class="text-sm font-bold mb-1">قائمة المشاهد فارغة</h3>
+                <p class="text-[10px]">ارفع ملف SRT لتوليد الجمل التفاعلية هنا.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Native-Style Bottom Sheet Dictionary Modal -->
+    <div id="dictModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden flex items-end justify-center z-[100] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeDict()">
+        <div class="bg-white w-full" id="dictModalContent" dir="rtl">
+            <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1"></div>
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-2xl font-bold text-emerald-600 english-text" id="dictWord">Word</h3>
+                <button onclick="closeDict()" class="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center active:bg-gray-200">
+                    <i class="fas fa-times text-sm"></i>
+                </button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">المعنى العربي</span>
+                    <p class="text-lg font-bold text-gray-800" id="dictAr">Translation</p>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider block mb-1">مثال بالإنجليزية</span>
+                    <p class="text-sm text-blue-800 italic english-text font-medium" id="dictEx">Example sentence</p>
+                </div>
+            </div>
+            <div class="p-4 pb-8 bg-gray-50 flex gap-3">
+                <button onclick="speakText(document.getElementById('dictWord').innerText)" class="flex-1 bg-emerald-100 text-emerald-700 active:bg-emerald-200 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors">
+                    <i class="fas fa-volume-up"></i> استمع للنطق
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // YT API Initialization
+        let isYtApiReady = false;
+        const ytScriptTag = document.createElement('script');
+        ytScriptTag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(ytScriptTag, firstScriptTag);
+        window.onYouTubeIframeAPIReady = function() { isYtApiReady = true; };
+
+        // Global State & Persistent Variables
+        let dialogueData = [];
+        let autoPauseEnabled = false;
+        let currentPlayerType = 'none'; 
+        let ytPlayer = null;
+        let repeatingSubtitleIndex = -1;
+        let currentActiveSubtitleIndex = -1;
+        let hasPausedForCurrentSubtitle = false;
+        let wasPlayingBeforeDict = false;
+        let subtitleOffset = 0; 
+        let isTranslatingQueue = false;
+
+        // DOM Elements
+        const container = document.getElementById('conversationList');
+        const autoPauseBtn = document.getElementById('autoPauseBtn');
+        const videoUploadOverlay = document.getElementById('videoUploadOverlay');
+        const moviePlayer = document.getElementById('moviePlayer');
+        const iframeContainer = document.getElementById('iframeContainer');
+        const ytPlayerContainer = document.getElementById('ytPlayerContainer');
+        const videoSubtitleOverlay = document.getElementById('videoSubtitleOverlay');
+        const overlayEn = document.getElementById('overlayEn');
+        const overlayAr = document.getElementById('overlayAr');
+        const videoMainContainer = document.getElementById('videoMainContainer');
+        const mobileToolbar = document.getElementById('mobileToolbar');
+        const mainHeader = document.getElementById('mainHeader');
+        const syncValueDisplay = document.getElementById('syncValueDisplay');
+        const translationProgress = document.getElementById('translationProgress');
+
+        // --- Data Persistence (Auto-Save/Load) ---
+        function saveState() {
+            localStorage.setItem('jungle_dialogue', JSON.stringify(dialogueData));
+            localStorage.setItem('jungle_vid_url', document.getElementById('videoUrlInput').value);
+            localStorage.setItem('jungle_sync', subtitleOffset);
+        }
+
+        function loadState() {
+            const savedData = localStorage.getItem('jungle_dialogue');
+            const savedUrl = localStorage.getItem('jungle_vid_url');
+            const savedSync = localStorage.getItem('jungle_sync');
+
+            if (savedSync) {
+                subtitleOffset = parseFloat(savedSync);
+                syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            }
+
+            if (savedData && savedData !== "[]") {
+                dialogueData = JSON.parse(savedData);
+                renderDialogueCards();
+                processBackgroundTranslation();
+            }
+
+            if (savedUrl) {
+                document.getElementById('videoUrlInput').value = savedUrl;
+                document.getElementById('loadUrlBtn').click(); 
+            } else if (savedData && savedData !== "[]") {
+                alert("تم استعادة الترجمة المحفوظة. يرجى إعادة اختيار ملف الفيديو من جهازك للاستمرار.");
+            }
+        }
+
+        window.resetApp = function() {
+            if(confirm("هل أنت متأكد من رغبتك في مسح البيانات والبدء بفيديو جديد؟")) {
+                localStorage.removeItem('jungle_dialogue');
+                localStorage.removeItem('jungle_vid_url');
+                localStorage.removeItem('jungle_sync');
+                location.reload();
+            }
+        };
+
+        window.adjustSync = function(val) {
+            subtitleOffset += val;
+            syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            saveState();
+        };
+
+        // Helpers
+        function formatSecondsToTime(secs) {
+            const m = Math.floor(secs / 60);
+            const s = Math.floor(secs % 60);
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+        
+        // دالة تحليل الوقت المطورة لتعمل مع ملفات SRT و HTML
+        function parseTime(t) {
+            if (!t) return 0;
+            const p = t.replace(',', '.').trim().split(':');
+            let secs = 0;
+            if (p.length === 3) {
+                secs = parseFloat(p[0]) * 3600 + parseFloat(p[1]) * 60 + parseFloat(p[2]);
+            } else if (p.length === 2) {
+                secs = parseFloat(p[0]) * 60 + parseFloat(p[1]);
+            } else if (p.length === 1) {
+                secs = parseFloat(p[0]);
+            }
+            return isNaN(secs) ? 0 : secs;
+        }
+
+        function extractYtId(url) {
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
+        function activatePlayerMode() {
+            videoUploadOverlay.classList.add('hidden');
+            videoMainContainer.classList.remove('min-h-[75vh]', 'bg-gray-900');
+            videoMainContainer.classList.add('aspect-video', 'bg-black');
+            mobileToolbar.classList.remove('hidden');
+            mainHeader.classList.add('hidden');
+        }
+
+        // --- Core Player Logic ---
+        document.getElementById('loadUrlBtn').addEventListener('click', function() {
+            const url = document.getElementById('videoUrlInput').value.trim();
+            if (!url) return;
+
+            activatePlayerMode();
+            moviePlayer.pause();
+            if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+            
+            const ytId = extractYtId(url);
+            if (ytId) {
+                currentPlayerType = 'youtube';
+                iframeContainer.classList.remove('hidden');
+                ytPlayerContainer.classList.remove('hidden');
+                
+                const originDomain = window.location.protocol === 'file:' ? 'https://localhost' : window.location.origin;
+                
+                const initYTPlayer = () => {
+                    if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+                        ytPlayer.loadVideoById(ytId);
+                    } else if (window.YT && window.YT.Player) {
+                        ytPlayer = new YT.Player('ytPlayer', {
+                            videoId: ytId,
+                            playerVars: { 'playsinline': 1, 'rel': 0, 'origin': originDomain, 'modestbranding': 1 },
+                        });
+                    }
+                };
+                if (isYtApiReady) { initYTPlayer(); } 
+                else { setTimeout(initYTPlayer, 1000); }
+
+            } else {
+                currentPlayerType = 'html5';
+                moviePlayer.classList.remove('hidden');
+                moviePlayer.src = url;
+                moviePlayer.play().catch(()=>{});
+            }
+            saveState(); 
+        });
+
+        document.getElementById('videoFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                activatePlayerMode();
+                currentPlayerType = 'html5';
+                iframeContainer.classList.add('hidden');
+                moviePlayer.classList.remove('hidden');
+                moviePlayer.src = URL.createObjectURL(file);
+                moviePlayer.play();
+                
+                document.getElementById('videoUrlInput').value = '';
+                localStorage.removeItem('jungle_vid_url');
+            }
+        });
+
+        // --- Dual Parser: SRT & HTML (Language Reactor Export Support) ---
+        document.getElementById('subtitleFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const content = evt.target.result.trim();
+                dialogueData = []; 
+                const arabicRegex = /[\u0600-\u06FF]/;
+
+                // التحقق مما إذا كان الملف المرفوع عبارة عن جدول HTML (مثل تصديرات Language Reactor)
+                if (content.toLowerCase().includes('<table') && (content.toLowerCase().includes('lln-') || content.toLowerCase().includes('<tr'))) {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = content;
+                    const rows = tempDiv.querySelectorAll('tr');
+                    
+                    rows.forEach(row => {
+                        const tds = row.querySelectorAll('td');
+                        if (tds.length >= 2) {
+                            const timeText = tds[0].innerText.trim();
+                            if (!timeText || !timeText.includes(':')) return; // تجاهل العناوين
+                            
+                            // استخراج النص مع الاحتفاظ بتنسيقاتك وألوانك (innerHTML)
+                            let enHTML = tds[1].innerHTML.trim();
+                            let arHTML = tds.length >= 3 ? tds[2].innerHTML.trim() : "";
+                            
+                            if (enHTML) {
+                                dialogueData.push({
+                                    startTime: parseTime(timeText),
+                                    endTime: 0, // سيتم حسابها لاحقاً
+                                    en: enHTML,
+                                    ar: arHTML, 
+                                    time: timeText.split('.')[0],
+                                    isTranslating: false
+                                });
+                            }
+                        }
+                    });
+
+                    // حساب وقت النهاية الافتراضي لملفات HTML التي لا تحتوي على وقت نهاية
+                    for (let i = 0; i < dialogueData.length; i++) {
+                        const nextStart = dialogueData[i+1] ? dialogueData[i+1].startTime : dialogueData[i].startTime + 5;
+                        dialogueData[i].endTime = Math.min(dialogueData[i].startTime + 6, nextStart - 0.01);
+                    }
+
+                } else {
+                    // قارئ ملفات الـ SRT التقليدي (مع الاحتفاظ بالتنسيقات HTML)
+                    const blocks = content.split(/\n\s*\n/);
+                    blocks.forEach(block => {
+                        const lines = block.split('\n');
+                        if (lines.length >= 3) {
+                            const times = lines[1].split(' --> ');
+                            if (times.length === 2) {
+                                let enLines = [], arLines = [];
+                                lines.slice(2).forEach(line => {
+                                    let cleanLine = line.trim(); // الاحتفاظ بالتنسيق
+                                    if (!cleanLine) return;
+                                    if (arabicRegex.test(cleanLine.replace(/<[^>]+>/g, ''))) arLines.push(cleanLine);
+                                    else enLines.push(cleanLine);
+                                });
+                                dialogueData.push({
+                                    startTime: parseTime(times[0]),
+                                    endTime: parseTime(times[1]),
+                                    en: enLines.join(' '),
+                                    ar: arLines.join(' '), 
+                                    time: times[0].split(',')[0].split('.')[0]
+                                });
+                            }
+                        }
+                    });
+                }
+
+                renderDialogueCards();
+                saveState();
+                alert("تم تحميل الترجمة بنجاح مع الاحتفاظ بتنسيقاتك (الألوان والتظليل)!");
+                processBackgroundTranslation(); 
+            };
+            reader.readAsText(file);
+        });
+
+        // --- Background Smart Translator ---
+        async function processBackgroundTranslation() {
+            if (isTranslatingQueue) return;
+            isTranslatingQueue = true;
+            
+            let totalToTranslate = dialogueData.filter(d => !d.ar).length;
+            if (totalToTranslate === 0) {
+                translationProgress.style.width = '100%';
+                setTimeout(() => translationProgress.style.opacity = '0', 1000);
+                isTranslatingQueue = false;
+                return;
+            }
+
+            translationProgress.style.opacity = '1';
+            let translatedCount = dialogueData.length - totalToTranslate;
+
+            for (let i = 0; i < dialogueData.length; i++) {
+                if (!dialogueData[i].ar) {
+                    try {
+                        // تنظيف أكواد الـ HTML فقط عند إرسالها للترجمة عبر API لضمان جودة الترجمة
+                        let textForTranslation = dialogueData[i].en.replace(/<[^>]+>/g, '');
+                        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(textForTranslation)}&langpair=en|ar`);
+                        const data = await res.json();
+                        dialogueData[i].ar = data.responseData.translatedText || "...";
+                        
+                        const arTextEl = document.getElementById(`ar-${i}`);
+                        if(arTextEl) arTextEl.innerHTML = dialogueData[i].ar;
+                        if(currentActiveSubtitleIndex === i) overlayAr.innerHTML = dialogueData[i].ar;
+                        
+                        translatedCount++;
+                        translationProgress.style.width = `${(translatedCount / dialogueData.length) * 100}%`;
+                        
+                        if(translatedCount % 5 === 0) saveState();
+                        
+                    } catch (e) {}
+                    await new Promise(r => setTimeout(r, 600)); 
+                }
+            }
+            saveState(); 
+            setTimeout(() => translationProgress.style.opacity = '0', 1000);
+            isTranslatingQueue = false;
+        }
+
+        // --- Advanced DOM Parser (يعزل التنسيقات ويجعل الكلمات قابلة للضغط) ---
+        function processTextLR(text, subtitleIndex) {
+            if(!text) return "";
+            
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = text;
+
+            function wrapTextNodes(node) {
+                if (node.nodeType === 3) { // Text Node
+                    const textContent = node.nodeValue;
+                    const regex = /([a-zA-ZÀ-ÿ0-9'-]+)/g;
+                    let match;
+                    let lastIndex = 0;
+                    const fragment = document.createDocumentFragment();
+
+                    while ((match = regex.exec(textContent)) !== null) {
+                        if (match.index > lastIndex) {
+                            fragment.appendChild(document.createTextNode(textContent.slice(lastIndex, match.index)));
+                        }
+                        
+                        const span = document.createElement('span');
+                        span.className = "lr-word";
+                        span.textContent = match[0];
+                        
+                        const safeWord = match[0].replace(/'/g, "\\'");
+                        span.setAttribute('onclick', `showDynamicDict('${safeWord}', ${subtitleIndex})`);
+                        
+                        fragment.appendChild(span);
+                        lastIndex = regex.lastIndex;
+                    }
+                    
+                    if (lastIndex < textContent.length) {
+                        fragment.appendChild(document.createTextNode(textContent.slice(lastIndex)));
+                    }
+
+                    if (fragment.childNodes.length > 0) {
+                        node.parentNode.replaceChild(fragment, node);
+                    }
+
+                } else if (node.nodeType === 1) { // Element Node (مثل <b> و <mark>)
+                    if (node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE' && !node.classList.contains('lr-word')) {
+                        Array.from(node.childNodes).forEach(wrapTextNodes);
+                    }
+                }
+            }
+
+            Array.from(tempDiv.childNodes).forEach(wrapTextNodes);
+            return tempDiv.innerHTML;
+        }
+
+        // --- Render Mobile Cards ---
+        function renderDialogueCards() {
+            container.innerHTML = '';
+            if (dialogueData.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center bg-white rounded-xl p-8 text-gray-500 shadow-sm border border-gray-200 mt-4">
+                        <i class="fas fa-list-alt text-3xl mb-2 text-gray-300"></i>
+                        <h3 class="text-sm font-bold mb-1">قائمة المشاهد فارغة</h3>
+                        <p class="text-[10px]">ارفع ملف SRT لتوليد الجمل التفاعلية هنا.</p>
+                    </div>`;
+                return;
+            }
+
+            dialogueData.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.id = `card-${index}`;
+                card.className = "subtitle-card bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-1 transition-colors";
+                
+                // استخدام المحلل الذكي لتطبيق التنسيقات وجعل الكلمات قابلة للضغط
+                const processedEnText = processTextLR(item.en, index);
+                
+                // تنظيف النص لمحرك النطق الصوتي (لكي لا يقرأ أكواد الـ HTML)
+                const plainTextForAudio = item.en.replace(/<[^>]+>/g, '').replace(/'/g, "\\'");
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start gap-2 mb-2">
+                        <p class="english-text text-[15px] font-bold text-gray-800 leading-snug flex-grow">${processedEnText}</p>
+                        <button onclick="speakText('${plainTextForAudio}')" class="text-emerald-600 bg-emerald-50 rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:bg-emerald-200">
+                            <i class="fas fa-volume-up text-sm"></i>
+                        </button>
+                    </div>
+                    <p class="text-emerald-700 text-xs mb-3 font-medium" id="ar-${index}">${item.ar || '<span class="text-gray-400"><i class="fas fa-spinner fa-spin"></i> جاري الترجمة في الخلفية...</span>'}</p>
+                    
+                    <div class="flex gap-2 border-t border-gray-100 pt-2">
+                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                            <i class="fas fa-play text-[10px]"></i> العب (${item.time || formatSecondsToTime(item.startTime)})
+                        </button>
+                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                            <i class="fas fa-redo text-[10px]"></i> تكرار مستمر
+                        </button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- Interaction Logic ---
+        function getMediaTime() {
+            if (currentPlayerType === 'html5') return moviePlayer.currentTime;
+            if (currentPlayerType === 'youtube' && ytPlayer && ytPlayer.getCurrentTime) return ytPlayer.getCurrentTime();
+            return 0;
+        }
+
+        window.jumpToTime = function(seconds, isLooping = false) {
+            hasPausedForCurrentSubtitle = false;
+            
+            if (!isLooping && repeatingSubtitleIndex !== -1) {
+                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('bg-blue-500', 'bg-gray-50');
+                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('text-white', 'text-gray-600');
+                repeatingSubtitleIndex = -1;
+            }
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            const safeTime = Math.max(0, seconds - 0.1);
+            if (currentPlayerType === 'html5') {
+                moviePlayer.currentTime = safeTime;
+                moviePlayer.play().catch(()=>{});
+            } else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.seekTo === 'function') {
+                ytPlayer.seekTo(safeTime, true);
+                ytPlayer.playVideo();
+            }
+        };
+
+        window.toggleRepeat = function(index) {
+            if (repeatingSubtitleIndex !== -1) {
+                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('bg-blue-500', 'bg-gray-50');
+                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('text-white', 'text-gray-600');
+            }
+            if (repeatingSubtitleIndex === index) {
+                repeatingSubtitleIndex = -1;
+            } else {
+                repeatingSubtitleIndex = index;
+                document.getElementById(`repeat-btn-${index}`).classList.replace('bg-gray-50', 'bg-blue-500');
+                document.getElementById(`repeat-btn-${index}`).classList.replace('text-gray-600', 'text-white');
+                jumpToTime(dialogueData[index].startTime, true);
+            }
+        };
+
+        autoPauseBtn.addEventListener('click', () => {
+            autoPauseEnabled = !autoPauseEnabled;
+            const icon = document.getElementById('autoPauseIcon');
+            const text = document.getElementById('autoPauseText');
+            if (autoPauseEnabled) {
+                autoPauseBtn.classList.replace('text-emerald-400', 'text-blue-400');
+                autoPauseBtn.classList.replace('border-gray-700', 'border-blue-500');
+                icon.className = "fas fa-pause-circle";
+                text.textContent = "إيقاف الجملة (مُفعّل)";
+            } else {
+                autoPauseBtn.classList.replace('text-blue-400', 'text-emerald-400');
+                autoPauseBtn.classList.replace('border-blue-500', 'border-gray-700');
+                icon.className = "fas fa-play-circle";
+                text.textContent = "إيقاف الجملة (مُعطّل)";
+                hasPausedForCurrentSubtitle = false; 
+            }
+        });
+
+        // --- Core Sync & Auto-Pause Loop ---
+        function checkSubtitlesLoop() {
+            if (currentPlayerType !== 'none') {
+                const currentTime = getMediaTime() - subtitleOffset; 
+                
+                if (repeatingSubtitleIndex !== -1) {
+                    const loopItem = dialogueData[repeatingSubtitleIndex];
+                    if (currentTime >= loopItem.endTime) {
+                        jumpToTime(loopItem.startTime, true);
+                        return requestAnimationFrame(checkSubtitlesLoop);
+                    }
+                }
+
+                if (autoPauseEnabled && currentActiveSubtitleIndex !== -1 && !hasPausedForCurrentSubtitle && repeatingSubtitleIndex === -1) {
+                    const currentItem = dialogueData[currentActiveSubtitleIndex];
+                    if (currentTime >= currentItem.endTime) {
+                        if (currentPlayerType === 'html5') moviePlayer.pause();
+                        else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+                        hasPausedForCurrentSubtitle = true;
+                    }
+                }
+
+                const activeIndex = dialogueData.findIndex(item => currentTime >= item.startTime && currentTime <= item.endTime);
+                
+                if (activeIndex !== -1) {
+                    if (currentActiveSubtitleIndex !== activeIndex) {
+                        currentActiveSubtitleIndex = activeIndex;
+                        hasPausedForCurrentSubtitle = false;
+                        const item = dialogueData[activeIndex];
+                        
+                        overlayEn.innerHTML = processTextLR(item.en, activeIndex);
+                        overlayAr.innerHTML = item.ar || "جاري الترجمة...";
+                        
+                        videoSubtitleOverlay.classList.remove('opacity-0');
+                        
+                        document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('border-emerald-500', 'bg-emerald-50/50'));
+                        const activeCard = document.getElementById(`card-${activeIndex}`);
+                        if (activeCard) {
+                            activeCard.classList.add('border-emerald-500', 'bg-emerald-50/50');
+                            if(window.scrollY > videoMainContainer.offsetHeight) {
+                                activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }
+                    }
+                } else {
+                    if (currentActiveSubtitleIndex !== -1) {
+                        let isPaused = false;
+                        if(currentPlayerType === 'html5') isPaused = moviePlayer.paused;
+                        if(currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.getPlayerState === 'function') isPaused = (ytPlayer.getPlayerState() === 2);
+                        
+                        const currentItem = dialogueData[currentActiveSubtitleIndex];
+                        const userResumedPlaying = hasPausedForCurrentSubtitle && !isPaused && currentTime > currentItem.endTime + 0.1;
+
+                        if ((!isPaused && !hasPausedForCurrentSubtitle) || userResumedPlaying) {
+                            videoSubtitleOverlay.classList.add('opacity-0');
+                            currentActiveSubtitleIndex = -1;
+                            hasPausedForCurrentSubtitle = false;
+                            document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('border-emerald-500', 'bg-emerald-50/50'));
+                        }
+                    }
+                }
+            }
+            requestAnimationFrame(checkSubtitlesLoop);
+        }
+        requestAnimationFrame(checkSubtitlesLoop);
+
+        // --- Dictionary ---
+        window.speakText = function(text) {
+            window.speechSynthesis.cancel(); 
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 0.85; 
+            window.speechSynthesis.speak(utterance);
+        };
+
+        window.showDynamicDict = async function(word) {
+            if (currentPlayerType === 'html5') {
+                wasPlayingBeforeDict = !moviePlayer.paused;
+                moviePlayer.pause();
+            } else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+                wasPlayingBeforeDict = ytPlayer.getPlayerState() === 1;
+                ytPlayer.pauseVideo();
+            }
+
+            const cleanWord = word.replace(/[^a-zA-Z0-9'-]/g, '');
+            document.getElementById('dictWord').innerText = cleanWord;
+            document.getElementById('dictAr').innerHTML = 'جاري البحث...';
+            document.getElementById('dictEx').innerText = '...';
+            
+            const modal = document.getElementById('dictModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('show', 'opacity-100', 'pointer-events-auto'), 10);
+            
+            speakText(cleanWord);
+
+            try {
+                const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanWord)}&langpair=en|ar`);
+                const transData = await transRes.json();
+                document.getElementById('dictAr').innerText = transData.responseData.translatedText || "لا توجد ترجمة.";
+
+                const defRes = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanWord)}`);
+                if (defRes.ok) {
+                    const defData = await defRes.json();
+                    let foundEx = false;
+                    for(let m of defData[0]?.meanings || []) {
+                        for(let d of m.definitions) {
+                            if(d.example) { document.getElementById('dictEx').innerText = `"${d.example}"`; foundEx = true; break; }
+                        }
+                        if(foundEx) break;
+                    }
+                    if(!foundEx) document.getElementById('dictEx').innerText = 'لا يوجد مثال متاح.';
+                }
+            } catch (e) { document.getElementById('dictAr').innerText = "خطأ في الاتصال."; }
+        };
+
+        window.closeDict = function() {
+            const modal = document.getElementById('dictModal');
+            modal.classList.remove('show', 'opacity-100', 'pointer-events-auto');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                if (wasPlayingBeforeDict) {
+                    if (currentPlayerType === 'html5') moviePlayer.play();
+                    else if (currentPlayerType === 'youtube' && ytPlayer) ytPlayer.playVideo();
+                }
+            }, 300);
+        };
+
+        // Initialize state on load
+        document.addEventListener('DOMContentLoaded', loadState);
+
+    </script>
+</body>
+</html>
