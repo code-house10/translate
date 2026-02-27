@@ -14,7 +14,7 @@
         .lr-word { cursor: pointer; display: inline-block; padding: 0 1px; border-radius: 4px; transition: background 0.2s; }
         .lr-word:active, .lr-word:hover { background-color: rgba(16, 185, 129, 0.8); color: white !important; }
         
-        /* Subtitle Overlay strictly for Mobile Video */
+        /* Subtitle Overlay */
         #videoSubtitleOverlay .subtitle-box {
             padding: 4px 10px;
             border-radius: 8px;
@@ -27,22 +27,20 @@
         #overlayEn { font-size: 14px !important; margin-bottom: 2px !important; line-height: 1.3 !important; }
         #overlayAr { font-size: 12px !important; line-height: 1.3 !important; color: #34d399 !important; }
 
-        /* Bottom Sheet Dictionary Modal */
-        #dictModalContent {
+        /* Bottom Sheet Modals */
+        .bottom-sheet-content {
             position: absolute;
             bottom: 0; left: 0; right: 0;
             width: 100%;
             border-radius: 20px 20px 0 0;
             transform: translateY(100%);
             transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            padding-bottom: env(safe-area-inset-bottom); /* For iPhone X+ notches */
+            padding-bottom: env(safe-area-inset-bottom);
         }
-        #dictModal.show #dictModalContent { transform: translateY(0); }
+        .bottom-sheet.show .bottom-sheet-content { transform: translateY(0); }
         
-        /* Hide scrollbar for a cleaner app look */
         ::-webkit-scrollbar { width: 0px; background: transparent; }
 
-        /* Default highlight styles in case user uses standard tags like <mark> */
         mark { background-color: rgba(250, 204, 21, 0.4); color: inherit; border-radius: 4px; padding: 0 2px; }
     </style>
 </head>
@@ -50,10 +48,17 @@
 
     <!-- Header -->
     <header id="mainHeader" class="bg-gradient-to-r from-emerald-700 to-green-600 text-white py-3 px-4 shadow-md relative z-40 transition-all duration-300">
-        <h1 class="text-lg font-bold flex items-center gap-2">
-            <i class="fas fa-graduation-cap"></i> المترجم التفاعلي المحمول
-        </h1>
-        <p class="text-emerald-100 text-[10px] mt-1">ارفع الفيديو والترجمة للبدء</p>
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-lg font-bold flex items-center gap-2">
+                    <i class="fas fa-graduation-cap"></i> المترجم التفاعلي 
+                </h1>
+                <p class="text-emerald-100 text-[10px] mt-1">ارفع الفيديو والترجمة للبدء</p>
+            </div>
+            <button onclick="openLibraryModal()" class="bg-emerald-800 hover:bg-emerald-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center gap-1">
+                <i class="fas fa-book"></i> مكتبتي
+            </button>
+        </div>
     </header>
 
     <!-- Sticky Video & Toolbar Area -->
@@ -67,6 +72,11 @@
                 <i class="fas fa-film text-4xl text-emerald-500 mb-4 mt-6"></i>
                 
                 <div class="w-full max-w-md space-y-4">
+                    <!-- Library Quick Access -->
+                    <button onclick="openLibraryModal()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-sm border border-indigo-500 shadow-lg mb-2 flex justify-center items-center gap-2">
+                        <i class="fas fa-folder-open"></i> فتح درس محفوظ من المكتبة
+                    </button>
+
                     <!-- Video Section -->
                     <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
                         <h3 class="text-emerald-400 font-bold mb-2 text-sm"><i class="fas fa-video"></i> 1. اختر الفيديو</h3>
@@ -106,7 +116,7 @@
             </div>
         </div>
 
-        <!-- Mobile Smart Toolbar -->
+        <!-- Mobile Smart Toolbar (Enhanced with Library functions) -->
         <div id="mobileToolbar" class="hidden bg-gray-800 border-t border-gray-900 flex flex-col w-full">
             <div class="flex justify-between items-center px-2 py-2 w-full gap-1 border-b border-gray-700">
                 <button id="autoPauseBtn" class="flex-1 flex items-center justify-center gap-1 text-emerald-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700">
@@ -119,8 +129,16 @@
                     <span id="syncValueDisplay" class="w-8 text-center" dir="ltr">0.0s</span>
                     <button onclick="adjustSync(0.25)" class="text-red-400 px-1 text-sm">+</button>
                 </div>
-                <button onclick="resetApp()" class="flex-1 flex items-center justify-center gap-1 text-red-400 active:text-white bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-gray-700">
-                    <i class="fas fa-trash"></i> تغيير الفيديو
+            </div>
+            <div class="flex justify-between items-center px-2 py-2 w-full gap-1">
+                <button onclick="saveCurrentToLibrary()" class="flex-1 flex items-center justify-center gap-1 text-blue-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700">
+                    <i class="fas fa-save"></i> حفظ في المكتبة
+                </button>
+                <button onclick="openLibraryModal()" class="flex-1 flex items-center justify-center gap-1 text-yellow-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700">
+                    <i class="fas fa-book"></i> فتح المكتبة
+                </button>
+                <button onclick="resetApp()" class="flex-1 flex items-center justify-center gap-1 text-red-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700">
+                    <i class="fas fa-exchange-alt"></i> درس جديد
                 </button>
             </div>
             <!-- Progress indicator for background translation -->
@@ -141,9 +159,25 @@
         </div>
     </main>
 
-    <!-- Native-Style Bottom Sheet Dictionary Modal -->
-    <div id="dictModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden flex items-end justify-center z-[100] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeDict()">
-        <div class="bg-white w-full" id="dictModalContent" dir="rtl">
+    <!-- Library Modal (Bottom Sheet) -->
+    <div id="libraryModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-60 hidden flex items-end justify-center z-[110] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeLibraryModal()">
+        <div class="bottom-sheet-content bg-white w-full max-h-[85vh] flex flex-col" dir="rtl">
+            <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1 flex-shrink-0"></div>
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center flex-shrink-0">
+                <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-bookmark text-indigo-600"></i> مكتبة الدروس المحفوظة</h3>
+                <button onclick="closeLibraryModal()" class="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center active:bg-gray-200">
+                    <i class="fas fa-times text-sm"></i>
+                </button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-grow bg-gray-50" id="libraryList">
+                <!-- Library items injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Dictionary Modal (Bottom Sheet) -->
+    <div id="dictModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-60 hidden flex items-end justify-center z-[100] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeDict()">
+        <div class="bottom-sheet-content bg-white w-full" id="dictModalContent" dir="rtl">
             <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1"></div>
             <div class="p-4 border-b border-gray-100 flex justify-between items-center">
                 <h3 class="text-2xl font-bold text-emerald-600 english-text" id="dictWord">Word</h3>
@@ -232,17 +266,26 @@
             if (savedUrl) {
                 document.getElementById('videoUrlInput').value = savedUrl;
                 document.getElementById('loadUrlBtn').click(); 
-            } else if (savedData && savedData !== "[]") {
-                alert("تم استعادة الترجمة المحفوظة. يرجى إعادة اختيار ملف الفيديو من جهازك للاستمرار.");
             }
         }
 
-        window.resetApp = function() {
-            if(confirm("هل أنت متأكد من رغبتك في مسح البيانات والبدء بفيديو جديد؟")) {
+        window.resetApp = function(keepSrt = false) {
+            if(!keepSrt && confirm("هل أنت متأكد من رغبتك في مسح البيانات والبدء بدرس جديد؟")) {
                 localStorage.removeItem('jungle_dialogue');
                 localStorage.removeItem('jungle_vid_url');
                 localStorage.removeItem('jungle_sync');
                 location.reload();
+            } else if (keepSrt) {
+                // If we want to change video but keep SRT (for library local files)
+                currentPlayerType = 'none';
+                if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+                moviePlayer.pause();
+                
+                videoMainContainer.classList.remove('aspect-video', 'bg-black');
+                videoMainContainer.classList.add('min-h-[75vh]', 'bg-gray-900');
+                videoUploadOverlay.classList.remove('hidden');
+                mobileToolbar.classList.add('hidden');
+                mainHeader.classList.remove('hidden');
             }
         };
 
@@ -252,6 +295,122 @@
             saveState();
         };
 
+        // --- Library System ---
+        window.saveCurrentToLibrary = function() {
+            if (dialogueData.length === 0) return alert("لا يوجد درس أو ترجمة لحفظها!");
+            let title = prompt("أدخل اسماً لهذا الدرس (مثال: المشهد الأول):", "درس جديد");
+            if (!title) return;
+            
+            let lessons = JSON.parse(localStorage.getItem('jungle_saved_lessons') || '[]');
+            
+            let urlToSave = '';
+            if (currentPlayerType === 'youtube' || currentPlayerType === 'generic_iframe' || (currentPlayerType === 'html5' && document.getElementById('videoUrlInput').value)) {
+                urlToSave = document.getElementById('videoUrlInput').value;
+            }
+
+            let lesson = {
+                id: Date.now(),
+                title: title,
+                type: currentPlayerType,
+                url: urlToSave,
+                dialogue: dialogueData,
+                sync: subtitleOffset,
+                date: new Date().toLocaleDateString()
+            };
+            
+            lessons.push(lesson);
+            
+            try {
+                localStorage.setItem('jungle_saved_lessons', JSON.stringify(lessons));
+                alert("تم حفظ الدرس في المكتبة بنجاح! 📚");
+            } catch(e) {
+                alert("عذراً، مساحة التخزين ممتلئة. يرجى حذف بعض الدروس القديمة من المكتبة أولاً.");
+            }
+        };
+
+        window.openLibraryModal = function() {
+            renderLibraryItems();
+            const modal = document.getElementById('libraryModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('show', 'opacity-100', 'pointer-events-auto'), 10);
+        };
+
+        window.closeLibraryModal = function() {
+            const modal = document.getElementById('libraryModal');
+            modal.classList.remove('show', 'opacity-100', 'pointer-events-auto');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        };
+
+        window.renderLibraryItems = function() {
+            let lessons = JSON.parse(localStorage.getItem('jungle_saved_lessons') || '[]');
+            let list = document.getElementById('libraryList');
+            if (lessons.length === 0) {
+                list.innerHTML = `
+                    <div class="text-center py-10 text-gray-400">
+                        <i class="fas fa-folder-open text-4xl mb-3 opacity-50"></i>
+                        <p class="text-sm">المكتبة فارغة حالياً.</p>
+                        <p class="text-[10px] mt-1">قم برفع فيديو وترجمة ثم اضغط "حفظ في المكتبة"</p>
+                    </div>`;
+                return;
+            }
+            
+            list.innerHTML = lessons.slice().reverse().map(l => `
+                <div class="bg-white border border-gray-200 rounded-xl p-3 mb-3 shadow-sm flex flex-col gap-2">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-bold text-indigo-900 text-sm">${l.title}</h4>
+                            <p class="text-[10px] text-gray-500 mt-0.5">
+                                <i class="${l.url ? 'fas fa-link text-blue-400' : 'fas fa-file-video text-purple-400'}"></i>
+                                ${l.url ? 'رابط ويب' : 'فيديو من جهازك'} • ${l.date || ''}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-1 border-t border-gray-100 pt-2">
+                        <button onclick="loadFromLibrary(${l.id})" class="flex-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-3 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition-transform flex justify-center items-center gap-1">
+                            <i class="fas fa-play"></i> استيراد وتشغيل
+                        </button>
+                        <button onclick="deleteFromLibrary(${l.id})" class="bg-red-50 text-red-500 hover:bg-red-100 px-3 py-1.5 rounded-lg text-xs font-bold active:scale-95 transition-transform">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        };
+
+        window.deleteFromLibrary = function(id) {
+            if(confirm("هل أنت متأكد من حذف هذا الدرس من المكتبة؟")) {
+                let lessons = JSON.parse(localStorage.getItem('jungle_saved_lessons') || '[]');
+                lessons = lessons.filter(l => l.id !== id);
+                localStorage.setItem('jungle_saved_lessons', JSON.stringify(lessons));
+                renderLibraryItems();
+            }
+        };
+
+        window.loadFromLibrary = function(id) {
+            let lessons = JSON.parse(localStorage.getItem('jungle_saved_lessons') || '[]');
+            let lesson = lessons.find(l => l.id === id);
+            if(!lesson) return;
+
+            // 1. Load Dialogue & Sync
+            dialogueData = lesson.dialogue;
+            subtitleOffset = lesson.sync || 0;
+            syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            
+            renderDialogueCards();
+            closeLibraryModal();
+
+            // 2. Setup Video
+            if (lesson.url) {
+                document.getElementById('videoUrlInput').value = lesson.url;
+                document.getElementById('loadUrlBtn').click();
+            } else {
+                // It was a local file. We cannot load the file automatically due to browser security.
+                alert("هذا الدرس يعتمد على فيديو قمت برفعه من جهازك سابقاً.\nسنحتفظ بالترجمة الملونة الخاصة بك الآن، يرجى فقط اختيار ملف الفيديو من جهازك مرة أخرى للبدء.");
+                resetApp(true); // Go back to upload screen but KEEP SRT.
+            }
+            saveState(); // Update current working state
+        };
+
         // Helpers
         function formatSecondsToTime(secs) {
             const m = Math.floor(secs / 60);
@@ -259,7 +418,6 @@
             return `${m}:${s < 10 ? '0' : ''}${s}`;
         }
         
-        // دالة تحليل الوقت المطورة لتعمل مع ملفات SRT و HTML
         function parseTime(t) {
             if (!t) return 0;
             const p = t.replace(',', '.').trim().split(':');
@@ -352,7 +510,6 @@
                 dialogueData = []; 
                 const arabicRegex = /[\u0600-\u06FF]/;
 
-                // التحقق مما إذا كان الملف المرفوع عبارة عن جدول HTML (مثل تصديرات Language Reactor)
                 if (content.toLowerCase().includes('<table') && (content.toLowerCase().includes('lln-') || content.toLowerCase().includes('<tr'))) {
                     const tempDiv = document.createElement('div');
                     tempDiv.innerHTML = content;
@@ -362,16 +519,15 @@
                         const tds = row.querySelectorAll('td');
                         if (tds.length >= 2) {
                             const timeText = tds[0].innerText.trim();
-                            if (!timeText || !timeText.includes(':')) return; // تجاهل العناوين
+                            if (!timeText || !timeText.includes(':')) return; 
                             
-                            // استخراج النص مع الاحتفاظ بتنسيقاتك وألوانك (innerHTML)
                             let enHTML = tds[1].innerHTML.trim();
                             let arHTML = tds.length >= 3 ? tds[2].innerHTML.trim() : "";
                             
                             if (enHTML) {
                                 dialogueData.push({
                                     startTime: parseTime(timeText),
-                                    endTime: 0, // سيتم حسابها لاحقاً
+                                    endTime: 0, 
                                     en: enHTML,
                                     ar: arHTML, 
                                     time: timeText.split('.')[0],
@@ -381,14 +537,12 @@
                         }
                     });
 
-                    // حساب وقت النهاية الافتراضي لملفات HTML التي لا تحتوي على وقت نهاية
                     for (let i = 0; i < dialogueData.length; i++) {
                         const nextStart = dialogueData[i+1] ? dialogueData[i+1].startTime : dialogueData[i].startTime + 5;
                         dialogueData[i].endTime = Math.min(dialogueData[i].startTime + 6, nextStart - 0.01);
                     }
 
                 } else {
-                    // قارئ ملفات الـ SRT التقليدي (مع الاحتفاظ بالتنسيقات HTML)
                     const blocks = content.split(/\n\s*\n/);
                     blocks.forEach(block => {
                         const lines = block.split('\n');
@@ -397,7 +551,7 @@
                             if (times.length === 2) {
                                 let enLines = [], arLines = [];
                                 lines.slice(2).forEach(line => {
-                                    let cleanLine = line.trim(); // الاحتفاظ بالتنسيق
+                                    let cleanLine = line.trim(); 
                                     if (!cleanLine) return;
                                     if (arabicRegex.test(cleanLine.replace(/<[^>]+>/g, ''))) arLines.push(cleanLine);
                                     else enLines.push(cleanLine);
@@ -441,7 +595,6 @@
             for (let i = 0; i < dialogueData.length; i++) {
                 if (!dialogueData[i].ar) {
                     try {
-                        // تنظيف أكواد الـ HTML فقط عند إرسالها للترجمة عبر API لضمان جودة الترجمة
                         let textForTranslation = dialogueData[i].en.replace(/<[^>]+>/g, '');
                         const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(textForTranslation)}&langpair=en|ar`);
                         const data = await res.json();
@@ -465,7 +618,7 @@
             isTranslatingQueue = false;
         }
 
-        // --- Advanced DOM Parser (يعزل التنسيقات ويجعل الكلمات قابلة للضغط) ---
+        // --- Advanced DOM Parser ---
         function processTextLR(text, subtitleIndex) {
             if(!text) return "";
             
@@ -473,7 +626,7 @@
             tempDiv.innerHTML = text;
 
             function wrapTextNodes(node) {
-                if (node.nodeType === 3) { // Text Node
+                if (node.nodeType === 3) { 
                     const textContent = node.nodeValue;
                     const regex = /([a-zA-ZÀ-ÿ0-9'-]+)/g;
                     let match;
@@ -504,7 +657,7 @@
                         node.parentNode.replaceChild(fragment, node);
                     }
 
-                } else if (node.nodeType === 1) { // Element Node (مثل <b> و <mark>)
+                } else if (node.nodeType === 1) { 
                     if (node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE' && !node.classList.contains('lr-word')) {
                         Array.from(node.childNodes).forEach(wrapTextNodes);
                     }
@@ -533,10 +686,8 @@
                 card.id = `card-${index}`;
                 card.className = "subtitle-card bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-1 transition-colors";
                 
-                // استخدام المحلل الذكي لتطبيق التنسيقات وجعل الكلمات قابلة للضغط
                 const processedEnText = processTextLR(item.en, index);
                 
-                // تنظيف النص لمحرك النطق الصوتي (لكي لا يقرأ أكواد الـ HTML)
                 const plainTextForAudio = item.en.replace(/<[^>]+>/g, '').replace(/'/g, "\\'");
 
                 card.innerHTML = `
