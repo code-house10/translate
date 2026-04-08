@@ -720,9 +720,19 @@
                 if (!dialogueData[i].ar) {
                     try {
                         let textForTranslation = dialogueData[i].en.replace(/<[^>]+>/g, '');
-                        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(textForTranslation)}&langpair=en|ar`);
+                        // Root Solution: Replaced MyMemory API with Google Translate free endpoint
+                        const googleTransUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=${encodeURIComponent(textForTranslation)}`;
+                        const res = await fetch(googleTransUrl);
                         const data = await res.json();
-                        dialogueData[i].ar = data.responseData.translatedText || "...";
+                        
+                        let translatedText = "";
+                        if (data && data[0]) {
+                            data[0].forEach(item => {
+                                if (item[0]) translatedText += item[0];
+                            });
+                        }
+                        
+                        dialogueData[i].ar = translatedText || "...";
                         
                         const arTextEl = document.getElementById(`ar-${i}`);
                         if(arTextEl) arTextEl.innerHTML = dialogueData[i].ar;
@@ -1072,11 +1082,12 @@
             
             speakText(cleanWord);
 
-            // 1. Fetch Basic Translation (MyMemory)
+            // 1. Fetch Basic Translation (Root Solution: Google Translate free endpoint)
             try {
-                const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanWord)}&langpair=en|ar`);
+                const googleTransUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=${encodeURIComponent(cleanWord)}`;
+                const transRes = await fetch(googleTransUrl);
                 const transData = await transRes.json();
-                document.getElementById('dictAr').innerText = transData.responseData.translatedText || "لا توجد ترجمة.";
+                document.getElementById('dictAr').innerText = transData[0][0][0] || "لا توجد ترجمة.";
             } catch (e) { document.getElementById('dictAr').innerText = "خطأ في الاتصال."; }
 
             // 2. Fetch Examples (Tatoeba API via secure CORS Proxy)
