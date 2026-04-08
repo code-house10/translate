@@ -203,14 +203,14 @@
                 
                 <!-- Movie Context -->
                 <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                    <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-2"><i class="fas fa-film"></i> السياق في المشهد</span>
+                    <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-2"><i class="fas fa-film"></i> الترجمة في سياق المشهد</span>
                     <p class="text-sm text-gray-800 english-text font-medium mb-2 leading-relaxed" id="dictContextEn">...</p>
                     <p class="text-xs text-emerald-700 font-bold" id="dictContextAr">...</p>
                 </div>
 
                 <!-- 3 Examples (Tatoeba) -->
                 <div>
-                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2"><i class="fas fa-list-ul"></i> أمثلة إضافية (Tatoeba)</span>
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider block mb-2"><i class="fas fa-list-ul"></i> أمثلة إضافية مترجمة (Tatoeba)</span>
                     <div id="dictExamplesList" class="space-y-2">
                         <!-- Examples injected here -->
                     </div>
@@ -281,7 +281,11 @@
         let autoPauseEnabled = false;
         let currentPlayerType = 'none'; 
         let ytPlayer = null;
-        let repeatingSubtitleIndex = -1;
+        
+        // Multi-Loop State Variables
+        let loopStartIndex = -1;
+        let loopEndIndex = -1;
+
         let currentActiveSubtitleIndex = -1;
         let hasPausedForCurrentSubtitle = false;
         let wasPlayingBeforeDict = false;
@@ -357,6 +361,10 @@
                 if (fbPlayer && typeof fbPlayer.pause === 'function') fbPlayer.pause();
                 moviePlayer.pause();
                 
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+                updateRepeatUI();
+
                 videoMainContainer.classList.remove('aspect-video', 'bg-black');
                 videoMainContainer.classList.add('min-h-[75vh]', 'bg-gray-900');
                 videoUploadOverlay.classList.remove('hidden');
@@ -470,6 +478,9 @@
             dialogueData = lesson.dialogue;
             subtitleOffset = lesson.sync || 0;
             syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            
+            loopStartIndex = -1;
+            loopEndIndex = -1;
             
             renderDialogueCards();
             closeLibraryModal();
@@ -679,6 +690,8 @@
                     });
                 }
 
+                loopStartIndex = -1;
+                loopEndIndex = -1;
                 renderDialogueCards();
                 saveState();
                 alert("تم تحميل الترجمة بنجاح مع الاحتفاظ بتنسيقاتك (الألوان والتظليل)!");
@@ -814,13 +827,14 @@
                         <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
                             <i class="fas fa-play text-[10px]"></i> العب (${item.time || formatSecondsToTime(item.startTime)})
                         </button>
-                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                            <i class="fas fa-redo text-[10px]"></i> تكرار مستمر
+                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200">
+                            <i class="fas fa-redo text-[10px]"></i> تكرار
                         </button>
                     </div>
                 `;
                 container.appendChild(card);
             });
+            updateRepeatUI();
         }
 
         // --- Interaction Logic ---
@@ -834,10 +848,11 @@
         window.jumpToTime = function(seconds, isLooping = false) {
             hasPausedForCurrentSubtitle = false;
             
-            if (!isLooping && repeatingSubtitleIndex !== -1) {
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('bg-blue-500', 'bg-gray-50');
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('text-white', 'text-gray-600');
-                repeatingSubtitleIndex = -1;
+            if (!isLooping && loopStartIndex !== -1) {
+                // Cancel loop if user jumps manually somewhere else outside the loop logic
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+                updateRepeatUI();
             }
 
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -855,18 +870,67 @@
             }
         };
 
-        window.toggleRepeat = function(index) {
-            if (repeatingSubtitleIndex !== -1) {
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('bg-blue-500', 'bg-gray-50');
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('text-white', 'text-gray-600');
+        window.updateRepeatUI = function() {
+            // Reset all buttons
+            document.querySelectorAll('.repeat-btn').forEach(btn => {
+                btn.classList.replace('bg-blue-500', 'bg-gray-50');
+                btn.classList.replace('bg-indigo-500', 'bg-gray-50');
+                btn.classList.replace('text-white', 'text-gray-600');
+                btn.innerHTML = `<i class="fas fa-redo text-[10px]"></i> تكرار`;
+            });
+
+            // Highlight loop buttons
+            if (loopStartIndex !== -1 && loopEndIndex !== -1) {
+                for (let i = loopStartIndex; i <= loopEndIndex; i++) {
+                    const btn = document.getElementById(`repeat-btn-${i}`);
+                    if (btn) {
+                        if (loopStartIndex === loopEndIndex) {
+                            btn.classList.replace('bg-gray-50', 'bg-blue-500');
+                            btn.classList.replace('text-gray-600', 'text-white');
+                            btn.innerHTML = `<i class="fas fa-redo-alt text-[10px]"></i> قيد التكرار`;
+                        } else {
+                            btn.classList.replace('bg-gray-50', 'bg-indigo-500');
+                            btn.classList.replace('text-gray-600', 'text-white');
+                            if (i === loopStartIndex) {
+                                btn.innerHTML = `<i class="fas fa-step-backward text-[10px]"></i> بداية المقطع`;
+                            } else if (i === loopEndIndex) {
+                                btn.innerHTML = `<i class="fas fa-step-forward text-[10px]"></i> نهاية المقطع`;
+                            } else {
+                                btn.innerHTML = `<i class="fas fa-link text-[10px]"></i> ضمن المقطع`;
+                            }
+                        }
+                    }
+                }
             }
-            if (repeatingSubtitleIndex === index) {
-                repeatingSubtitleIndex = -1;
+        };
+
+        window.toggleRepeat = function(index) {
+            if (loopStartIndex === -1) {
+                // Start a new single loop
+                loopStartIndex = index;
+                loopEndIndex = index;
+            } else if (loopStartIndex === index && loopEndIndex === index) {
+                // Cancel single loop
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+            } else if (index > loopStartIndex) {
+                // Expand loop down (User sets end point)
+                loopEndIndex = index;
+            } else if (index < loopStartIndex) {
+                // Expand loop up (User sets a new earlier start point)
+                loopEndIndex = loopStartIndex;
+                loopStartIndex = index;
             } else {
-                repeatingSubtitleIndex = index;
-                document.getElementById(`repeat-btn-${index}`).classList.replace('bg-gray-50', 'bg-blue-500');
-                document.getElementById(`repeat-btn-${index}`).classList.replace('text-gray-600', 'text-white');
-                jumpToTime(dialogueData[index].startTime, true);
+                // User clicked somewhere in the middle, cancel the whole loop to be intuitive
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+            }
+            
+            updateRepeatUI();
+            
+            // Immediately start playing the loop
+            if (loopStartIndex !== -1) {
+                jumpToTime(dialogueData[loopStartIndex].startTime, true);
             }
         };
 
@@ -893,15 +957,18 @@
             if (currentPlayerType !== 'none' && currentPlayerType !== 'generic_iframe') {
                 const currentTime = getMediaTime() - subtitleOffset; 
                 
-                if (repeatingSubtitleIndex !== -1) {
-                    const loopItem = dialogueData[repeatingSubtitleIndex];
-                    if (currentTime >= loopItem.endTime) {
-                        jumpToTime(loopItem.startTime, true);
+                // Handling continuous repetition logic for ranges
+                if (loopStartIndex !== -1 && loopEndIndex !== -1) {
+                    const loopStartItem = dialogueData[loopStartIndex];
+                    const loopEndItem = dialogueData[loopEndIndex];
+                    if (currentTime >= loopEndItem.endTime) {
+                        jumpToTime(loopStartItem.startTime, true);
                         return requestAnimationFrame(checkSubtitlesLoop);
                     }
                 }
 
-                if (autoPauseEnabled && currentActiveSubtitleIndex !== -1 && !hasPausedForCurrentSubtitle && repeatingSubtitleIndex === -1) {
+                // Handling auto pause logic (suspended if loop is active)
+                if (autoPauseEnabled && currentActiveSubtitleIndex !== -1 && !hasPausedForCurrentSubtitle && loopStartIndex === -1) {
                     const currentItem = dialogueData[currentActiveSubtitleIndex];
                     if (currentTime >= currentItem.endTime) {
                         if (currentPlayerType === 'html5') moviePlayer.pause();
@@ -983,7 +1050,7 @@
             document.getElementById('dictAr').innerHTML = 'جاري البحث...';
             document.getElementById('dictContextEn').innerHTML = '...';
             document.getElementById('dictContextAr').innerText = '...';
-            document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400"><i class="fas fa-spinner fa-spin"></i> جاري جلب الأمثلة المترجمة...</p>';
+            document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400"><i class="fas fa-spinner fa-spin"></i> جاري جلب الأمثلة المترجمة من Tatoeba...</p>';
             
             // Set Movie Context
             if (subtitleIndex !== undefined && dialogueData[subtitleIndex]) {
@@ -1009,26 +1076,31 @@
                 document.getElementById('dictAr').innerText = transData.responseData.translatedText || "لا توجد ترجمة.";
             } catch (e) { document.getElementById('dictAr').innerText = "خطأ في الاتصال."; }
 
-            // 2. Fetch Examples (Tatoeba API)
+            // 2. Fetch Examples (Tatoeba API via secure CORS Proxy)
             try {
-                const tatoebaRes = await fetch(`https://tatoeba.org/en/api_v0/search?from=eng&to=ara&query=${encodeURIComponent(cleanWord)}`);
+                // Using allorigins.win as a reliable CORS proxy to ensure frontend JS can read Tatoeba's JSON
+                const tatoebaUrl = `https://tatoeba.org/en/api_v0/search?from=eng&to=ara&query=${encodeURIComponent(cleanWord)}`;
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(tatoebaUrl)}`;
+                
+                const tatoebaRes = await fetch(proxyUrl);
                 const tatoebaData = await tatoebaRes.json();
                 
                 let examplesHtml = '';
                 if (tatoebaData.results && tatoebaData.results.length > 0) {
-                    // Get up to 3 valid bilingual examples from Tatoeba
-                    const examples = tatoebaData.results.filter(ex => ex.translations && ex.translations.length > 0 && ex.translations[0].length > 0).slice(0, 3);
+                    // Get up to 3 valid bilingual examples from Tatoeba (ensure they have an Arabic translation)
+                    const examples = tatoebaData.results.filter(ex => ex.translations && ex.translations.length > 0 && ex.translations[0].length > 0 && ex.translations[0][0].text).slice(0, 3);
                     
                     if(examples.length > 0) {
                         examples.forEach(ex => {
                             const arTranslation = ex.translations[0][0].text;
+                            // Highlight the clicked word inside the Tatoeba example sentence
                             const regex = new RegExp(`\\b${cleanWord}\\b`, 'gi');
-                            const highlightedEx = ex.text.replace(regex, `<span class="text-emerald-600 font-bold underline decoration-emerald-200">$&</span>`);
+                            const highlightedEx = ex.text.replace(regex, `<span class="text-blue-600 font-bold underline decoration-blue-200">$&</span>`);
 
                             examplesHtml += `
-                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                                    <p class="text-[13px] text-gray-800 english-text mb-1">${highlightedEx}</p>
-                                    <p class="text-xs text-gray-500 font-medium" dir="rtl">${arTranslation}</p>
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:border-blue-300 transition-colors">
+                                    <p class="text-[13px] text-gray-800 english-text mb-1.5 font-medium leading-relaxed">${highlightedEx}</p>
+                                    <p class="text-xs text-blue-700 font-bold" dir="rtl">${arTranslation}</p>
                                 </div>
                             `;
                         });
@@ -1040,7 +1112,7 @@
                     throw new Error("No examples found");
                 }
             } catch (e) {
-                // Fallback to DictionaryAPI if Tatoeba fails or has no Arabic translations
+                // Fallback to DictionaryAPI if Tatoeba fails or has no Arabic translations for that specific word
                 try {
                     const defRes = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanWord)}`);
                     if (defRes.ok) {
@@ -1066,7 +1138,7 @@
                         document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400">لا توجد أمثلة متاحة.</p>';
                     }
                 } catch(err) {
-                    document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400">خطأ في جلب الأمثلة.</p>';
+                    document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400">حدث خطأ أثناء جلب الأمثلة.</p>';
                 }
             }
         };
