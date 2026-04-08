@@ -849,10 +849,16 @@
             hasPausedForCurrentSubtitle = false;
             
             if (!isLooping && loopStartIndex !== -1) {
-                // Cancel loop if user jumps manually somewhere else outside the loop logic
-                loopStartIndex = -1;
-                loopEndIndex = -1;
-                updateRepeatUI();
+                // Cancel loop ONLY if user manually clicks "Play" on a subtitle that is completely outside the current loop range
+                const startItem = dialogueData[loopStartIndex];
+                const endItem = dialogueData[loopEndIndex];
+                
+                // 1 second buffer allowed to be considered "inside"
+                if (seconds < startItem.startTime - 1 || seconds > endItem.endTime) {
+                    loopStartIndex = -1;
+                    loopEndIndex = -1;
+                    updateRepeatUI();
+                }
             }
 
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -871,26 +877,24 @@
         };
 
         window.updateRepeatUI = function() {
-            // Reset all buttons
+            // 1. Reset all buttons visually safely
             document.querySelectorAll('.repeat-btn').forEach(btn => {
-                btn.classList.replace('bg-blue-500', 'bg-gray-50');
-                btn.classList.replace('bg-indigo-500', 'bg-gray-50');
-                btn.classList.replace('text-white', 'text-gray-600');
+                btn.className = "repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200";
                 btn.innerHTML = `<i class="fas fa-redo text-[10px]"></i> تكرار`;
             });
 
-            // Highlight loop buttons
+            // 2. Apply loop highlights precisely
             if (loopStartIndex !== -1 && loopEndIndex !== -1) {
                 for (let i = loopStartIndex; i <= loopEndIndex; i++) {
                     const btn = document.getElementById(`repeat-btn-${i}`);
                     if (btn) {
                         if (loopStartIndex === loopEndIndex) {
-                            btn.classList.replace('bg-gray-50', 'bg-blue-500');
-                            btn.classList.replace('text-gray-600', 'text-white');
+                            // Single loop
+                            btn.className = "repeat-btn flex-1 bg-blue-500 active:bg-blue-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200 shadow-md";
                             btn.innerHTML = `<i class="fas fa-redo-alt text-[10px]"></i> قيد التكرار`;
                         } else {
-                            btn.classList.replace('bg-gray-50', 'bg-indigo-500');
-                            btn.classList.replace('text-gray-600', 'text-white');
+                            // Range loop
+                            btn.className = "repeat-btn flex-1 bg-indigo-500 active:bg-indigo-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200 shadow-md";
                             if (i === loopStartIndex) {
                                 btn.innerHTML = `<i class="fas fa-step-backward text-[10px]"></i> بداية المقطع`;
                             } else if (i === loopEndIndex) {
@@ -906,29 +910,28 @@
 
         window.toggleRepeat = function(index) {
             if (loopStartIndex === -1) {
-                // Start a new single loop
+                // No active loop -> start new single loop
                 loopStartIndex = index;
                 loopEndIndex = index;
             } else if (loopStartIndex === index && loopEndIndex === index) {
-                // Cancel single loop
+                // Clicked the active single loop -> cancel it
                 loopStartIndex = -1;
                 loopEndIndex = -1;
-            } else if (index > loopStartIndex) {
-                // Expand loop down (User sets end point)
+            } else if (index >= loopStartIndex && index <= loopEndIndex) {
+                // Clicked somewhere INSIDE an active multi-loop range -> cancel it entirely
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+            } else if (index > loopEndIndex) {
+                // Clicked a subtitle BELOW the current loop -> expand the loop downwards
                 loopEndIndex = index;
             } else if (index < loopStartIndex) {
-                // Expand loop up (User sets a new earlier start point)
-                loopEndIndex = loopStartIndex;
+                // Clicked a subtitle ABOVE the current loop -> expand the loop upwards
                 loopStartIndex = index;
-            } else {
-                // User clicked somewhere in the middle, cancel the whole loop to be intuitive
-                loopStartIndex = -1;
-                loopEndIndex = -1;
             }
             
             updateRepeatUI();
             
-            // Immediately start playing the loop
+            // Jump to the beginning of the newly established loop
             if (loopStartIndex !== -1) {
                 jumpToTime(dialogueData[loopStartIndex].startTime, true);
             }
