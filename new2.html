@@ -203,14 +203,14 @@
                 
                 <!-- Movie Context -->
                 <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                    <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-2"><i class="fas fa-film"></i> السياق في المشهد</span>
+                    <span class="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-2"><i class="fas fa-film"></i> الترجمة في سياق المشهد</span>
                     <p class="text-sm text-gray-800 english-text font-medium mb-2 leading-relaxed" id="dictContextEn">...</p>
                     <p class="text-xs text-emerald-700 font-bold" id="dictContextAr">...</p>
                 </div>
 
                 <!-- 3 Examples (Tatoeba) -->
                 <div>
-                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-2"><i class="fas fa-list-ul"></i> أمثلة إضافية (Tatoeba)</span>
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider block mb-2"><i class="fas fa-list-ul"></i> أمثلة إضافية مترجمة (Tatoeba)</span>
                     <div id="dictExamplesList" class="space-y-2">
                         <!-- Examples injected here -->
                     </div>
@@ -983,7 +983,7 @@
             document.getElementById('dictAr').innerHTML = 'جاري البحث...';
             document.getElementById('dictContextEn').innerHTML = '...';
             document.getElementById('dictContextAr').innerText = '...';
-            document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400"><i class="fas fa-spinner fa-spin"></i> جاري جلب الأمثلة المترجمة...</p>';
+            document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400"><i class="fas fa-spinner fa-spin"></i> جاري جلب الأمثلة المترجمة من Tatoeba...</p>';
             
             // Set Movie Context
             if (subtitleIndex !== undefined && dialogueData[subtitleIndex]) {
@@ -1009,26 +1009,31 @@
                 document.getElementById('dictAr').innerText = transData.responseData.translatedText || "لا توجد ترجمة.";
             } catch (e) { document.getElementById('dictAr').innerText = "خطأ في الاتصال."; }
 
-            // 2. Fetch Examples (Tatoeba API)
+            // 2. Fetch Examples (Tatoeba API via secure CORS Proxy)
             try {
-                const tatoebaRes = await fetch(`https://tatoeba.org/en/api_v0/search?from=eng&to=ara&query=${encodeURIComponent(cleanWord)}`);
+                // Using allorigins.win as a reliable CORS proxy to ensure frontend JS can read Tatoeba's JSON
+                const tatoebaUrl = `https://tatoeba.org/en/api_v0/search?from=eng&to=ara&query=${encodeURIComponent(cleanWord)}`;
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(tatoebaUrl)}`;
+                
+                const tatoebaRes = await fetch(proxyUrl);
                 const tatoebaData = await tatoebaRes.json();
                 
                 let examplesHtml = '';
                 if (tatoebaData.results && tatoebaData.results.length > 0) {
-                    // Get up to 3 valid bilingual examples from Tatoeba
-                    const examples = tatoebaData.results.filter(ex => ex.translations && ex.translations.length > 0 && ex.translations[0].length > 0).slice(0, 3);
+                    // Get up to 3 valid bilingual examples from Tatoeba (ensure they have an Arabic translation)
+                    const examples = tatoebaData.results.filter(ex => ex.translations && ex.translations.length > 0 && ex.translations[0].length > 0 && ex.translations[0][0].text).slice(0, 3);
                     
                     if(examples.length > 0) {
                         examples.forEach(ex => {
                             const arTranslation = ex.translations[0][0].text;
+                            // Highlight the clicked word inside the Tatoeba example sentence
                             const regex = new RegExp(`\\b${cleanWord}\\b`, 'gi');
-                            const highlightedEx = ex.text.replace(regex, `<span class="text-emerald-600 font-bold underline decoration-emerald-200">$&</span>`);
+                            const highlightedEx = ex.text.replace(regex, `<span class="text-blue-600 font-bold underline decoration-blue-200">$&</span>`);
 
                             examplesHtml += `
-                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                                    <p class="text-[13px] text-gray-800 english-text mb-1">${highlightedEx}</p>
-                                    <p class="text-xs text-gray-500 font-medium" dir="rtl">${arTranslation}</p>
+                                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm hover:border-blue-300 transition-colors">
+                                    <p class="text-[13px] text-gray-800 english-text mb-1.5 font-medium leading-relaxed">${highlightedEx}</p>
+                                    <p class="text-xs text-blue-700 font-bold" dir="rtl">${arTranslation}</p>
                                 </div>
                             `;
                         });
@@ -1040,7 +1045,7 @@
                     throw new Error("No examples found");
                 }
             } catch (e) {
-                // Fallback to DictionaryAPI if Tatoeba fails or has no Arabic translations
+                // Fallback to DictionaryAPI if Tatoeba fails or has no Arabic translations for that specific word
                 try {
                     const defRes = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanWord)}`);
                     if (defRes.ok) {
@@ -1066,7 +1071,7 @@
                         document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400">لا توجد أمثلة متاحة.</p>';
                     }
                 } catch(err) {
-                    document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400">خطأ في جلب الأمثلة.</p>';
+                    document.getElementById('dictExamplesList').innerHTML = '<p class="text-xs text-gray-400">حدث خطأ أثناء جلب الأمثلة.</p>';
                 }
             }
         };
