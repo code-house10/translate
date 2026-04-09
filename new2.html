@@ -131,11 +131,15 @@
         <!-- Mobile Smart Toolbar -->
         <div id="mobileToolbar" class="hidden bg-gray-800 border-t border-gray-900 flex flex-col w-full">
             <div class="flex justify-between items-center px-2 py-2 w-full gap-1 border-b border-gray-700">
-                <button id="autoPauseBtn" class="flex-1 flex items-center justify-center gap-1 text-emerald-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700">
-                    <i class="fas fa-play-circle" id="autoPauseIcon"></i>
-                    <span id="autoPauseText">إيقاف الجملة (مُعطّل)</span>
+                <button onclick="cycleSpeed()" class="flex items-center justify-center gap-1 text-purple-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700" style="flex: 0.8;">
+                    <i class="fas fa-bolt"></i>
+                    <span id="speedValueText" dir="ltr">1.0x</span>
                 </button>
-                <div class="flex-1 flex items-center justify-center gap-1 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold text-gray-300 border border-gray-700">
+                <button id="autoPauseBtn" class="flex items-center justify-center gap-1 text-emerald-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700" style="flex: 1.2;">
+                    <i class="fas fa-play-circle" id="autoPauseIcon"></i>
+                    <span id="autoPauseText">إيقاف (مُعطّل)</span>
+                </button>
+                <div class="flex items-center justify-center gap-1 bg-gray-900 px-1 py-1.5 rounded-lg text-[10px] font-bold text-gray-300 border border-gray-700" style="flex: 1.2;">
                     <span title="مزامنة الترجمة">تزامن:</span>
                     <button onclick="adjustSync(-0.25)" class="text-blue-400 px-1 text-sm">-</button>
                     <span id="syncValueDisplay" class="w-8 text-center" dir="ltr">0.0s</span>
@@ -292,6 +296,10 @@
         let subtitleOffset = 0; 
         let isTranslatingQueue = false;
 
+        // Speed State
+        let playbackSpeed = 1.0;
+        const speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
         // DOM Elements
         const container = document.getElementById('conversationList');
         const autoPauseBtn = document.getElementById('autoPauseBtn');
@@ -325,16 +333,23 @@
             localStorage.setItem('jungle_dialogue', JSON.stringify(dialogueData));
             localStorage.setItem('jungle_vid_url', document.getElementById('videoUrlInput').value);
             localStorage.setItem('jungle_sync', subtitleOffset);
+            localStorage.setItem('jungle_speed', playbackSpeed);
         }
 
         function loadState() {
             const savedData = localStorage.getItem('jungle_dialogue');
             const savedUrl = localStorage.getItem('jungle_vid_url');
             const savedSync = localStorage.getItem('jungle_sync');
+            const savedSpeed = localStorage.getItem('jungle_speed');
 
             if (savedSync) {
                 subtitleOffset = parseFloat(savedSync);
                 syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            }
+
+            if (savedSpeed) {
+                playbackSpeed = parseFloat(savedSpeed);
+                document.getElementById('speedValueText').innerText = playbackSpeed.toFixed(1) + 'x';
             }
 
             if (savedData && savedData !== "[]") {
@@ -377,6 +392,23 @@
             subtitleOffset += val;
             syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
             saveState();
+        };
+
+        window.cycleSpeed = function() {
+            let idx = speedOptions.indexOf(playbackSpeed);
+            idx = (idx + 1) % speedOptions.length;
+            playbackSpeed = speedOptions[idx];
+            document.getElementById('speedValueText').innerText = playbackSpeed.toFixed(1) + 'x';
+            applyPlaybackSpeed();
+            saveState();
+        };
+
+        window.applyPlaybackSpeed = function() {
+            if (currentPlayerType === 'html5') {
+                moviePlayer.playbackRate = playbackSpeed;
+            } else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.setPlaybackRate === 'function') {
+                ytPlayer.setPlaybackRate(playbackSpeed);
+            }
         };
 
         // --- Library System ---
@@ -620,6 +652,7 @@
                     moviePlayer.classList.remove('hidden');
                     moviePlayer.src = directMp4;
                     moviePlayer.play().catch(()=>{});
+                    applyPlaybackSpeed();
                     saveState();
                     return; // الخروج لأن المشغل الداخلي يعمل بنجاح
                 }
@@ -683,6 +716,7 @@
                 moviePlayer.classList.remove('hidden');
                 moviePlayer.src = finalUrl;
                 moviePlayer.play().catch(()=>{});
+                applyPlaybackSpeed();
             } else {
                 // 4. Generic Iframe (Vimeo, Dailymotion, Etc.)
                 // Note: Time Sync for subtitles doesn't work well via generic iframe without API.
@@ -958,9 +992,11 @@
             if (currentPlayerType === 'html5') {
                 moviePlayer.currentTime = safeTime;
                 moviePlayer.play().catch(()=>{});
+                applyPlaybackSpeed();
             } else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.seekTo === 'function') {
                 ytPlayer.seekTo(safeTime, true);
                 ytPlayer.playVideo();
+                applyPlaybackSpeed();
             } else if (currentPlayerType === 'facebook' && fbPlayer && typeof fbPlayer.seek === 'function') {
                 fbPlayer.seek(safeTime);
                 fbPlayer.play();
@@ -1036,12 +1072,12 @@
                 autoPauseBtn.classList.replace('text-emerald-400', 'text-blue-400');
                 autoPauseBtn.classList.replace('border-gray-700', 'border-blue-500');
                 icon.className = "fas fa-pause-circle";
-                text.textContent = "إيقاف الجملة (مُفعّل)";
+                text.textContent = "إيقاف (مُفعّل)";
             } else {
                 autoPauseBtn.classList.replace('text-blue-400', 'text-emerald-400');
                 autoPauseBtn.classList.replace('border-blue-500', 'border-gray-700');
                 icon.className = "fas fa-play-circle";
-                text.textContent = "إيقاف الجملة (مُعطّل)";
+                text.textContent = "إيقاف (مُعطّل)";
                 hasPausedForCurrentSubtitle = false; 
             }
         });
