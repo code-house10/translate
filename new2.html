@@ -86,7 +86,7 @@
                             <button id="loadUrlBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 text-xs font-bold whitespace-nowrap">تشغيل</button>
                         </div>
                         <!-- Facebook Warning -->
-                        <p id="fbWarning" class="text-yellow-400 text-[10px] hidden mb-3 leading-tight"><i class="fas fa-exclamation-triangle"></i> تنبيه: قد يمنع فيسبوك تشغيل بعض الفيديوهات هنا بسبب حقوق النشر. إذا لم يعمل، يُرجى تحميل الفيديو ورفعه من جهازك أدناه.</p>
+                        <p id="fbWarning" class="text-blue-400 text-[10px] hidden mb-3 leading-tight"><i class="fas fa-magic"></i> تنبيه: سيقوم النظام بمحاولة استخراج رابط MP4 المباشر من فيسبوك كما تفعل تطبيقات مثل Web Video Caster لضمان أفضل تجربة، قد يستغرق هذا بضع ثوانٍ.</p>
                         
                         <div class="text-center text-gray-500 text-[10px] mb-2 mt-2">أو من جهازك</div>
                         <input type="file" id="videoFileInput" accept="video/mp4,video/*" class="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-gray-700 file:text-white"/>
@@ -281,7 +281,11 @@
         let autoPauseEnabled = false;
         let currentPlayerType = 'none'; 
         let ytPlayer = null;
-        let repeatingSubtitleIndex = -1;
+        
+        // Multi-Loop State Variables
+        let loopStartIndex = -1;
+        let loopEndIndex = -1;
+
         let currentActiveSubtitleIndex = -1;
         let hasPausedForCurrentSubtitle = false;
         let wasPlayingBeforeDict = false;
@@ -357,6 +361,10 @@
                 if (fbPlayer && typeof fbPlayer.pause === 'function') fbPlayer.pause();
                 moviePlayer.pause();
                 
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+                updateRepeatUI();
+
                 videoMainContainer.classList.remove('aspect-video', 'bg-black');
                 videoMainContainer.classList.add('min-h-[75vh]', 'bg-gray-900');
                 videoUploadOverlay.classList.remove('hidden');
@@ -471,6 +479,9 @@
             subtitleOffset = lesson.sync || 0;
             syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
             
+            loopStartIndex = -1;
+            loopEndIndex = -1;
+            
             renderDialogueCards();
             closeLibraryModal();
 
@@ -519,8 +530,49 @@
             mainHeader.classList.add('hidden');
         }
 
+        // --- Facebook Video Extractor (Web Video Caster Approach) ---
+        async function extractFacebookVideo(url) {
+            try {
+                // نستخدم بروكسي لجلب كود الصفحة (يعمل للفيديوهات العامة تماماً مثل فكرة Web Video Caster)
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+                const html = data.contents;
+
+                if(!html) return null;
+
+                // البحث عن رابط الفيديو المباشر داخل الكود (HD أو SD)
+                const regexes = [
+                    /"playable_url_quality_hd":"([^"]+)"/,
+                    /"playable_url":"([^"]+)"/,
+                    /"browser_native_hd_url":"([^"]+)"/,
+                    /"browser_native_sd_url":"([^"]+)"/,
+                    /<meta property="og:video" content="([^"]+)"/
+                ];
+                
+                let matchedUrl = null;
+                for (let r of regexes) {
+                    const match = html.match(r);
+                    if (match && match[1]) {
+                        matchedUrl = match[1].replace(/\\\//g, '/'); // إصلاح علامات الشرطة
+                        try { matchedUrl = JSON.parse(`"${matchedUrl}"`); } catch(e){} // فك تشفير Unicode
+                        
+                        // فك تشفير كيانات HTML مثل &amp;
+                        const txt = document.createElement("textarea");
+                        txt.innerHTML = matchedUrl;
+                        matchedUrl = txt.value;
+                        break;
+                    }
+                }
+                return matchedUrl;
+            } catch (e) {
+                console.error("Extraction error:", e);
+                return null;
+            }
+        }
+
         // --- URL Parser & Universal Player Router ---
-        document.getElementById('loadUrlBtn').addEventListener('click', function() {
+        document.getElementById('loadUrlBtn').addEventListener('click', async function() {
             let rawUrl = document.getElementById('videoUrlInput').value.trim();
             if (!rawUrl) return;
 
@@ -529,6 +581,45 @@
             if (rawUrl.includes('<iframe') && rawUrl.includes('src=')) {
                 const srcMatch = rawUrl.match(/src=["']([^"']+)["']/);
                 if (srcMatch) finalUrl = srcMatch[1];
+            }
+
+            const loadBtn = document.getElementById('loadUrlBtn');
+            const originalBtnText = loadBtn.innerHTML;
+            
+            const ytId = extractYtId(finalUrl);
+            const fbRegex = /(facebook\.com|fb\.watch)\//i;
+
+            // 1. محاولة استخراج الرابط المباشر من فيسبوك قبل تفعيل وضع اللاعب
+            if (fbRegex.test(finalUrl)) {
+                loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الاستخراج...';
+                loadBtn.disabled = true;
+                
+                const directMp4 = await extractFacebookVideo(finalUrl);
+                
+                loadBtn.innerHTML = originalBtnText;
+                loadBtn.disabled = false;
+
+                if (directMp4) {
+                    // نجاح الاستخراج! سيتم تشغيله كملف محلي (أفضل أداء للتزامن)
+                    activatePlayerMode();
+                    
+                    moviePlayer.pause();
+                    moviePlayer.classList.add('hidden');
+                    if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+                    if (fbPlayer && typeof fbPlayer.pause === 'function') fbPlayer.pause();
+                    
+                    ytPlayerContainer.classList.add('hidden');
+                    document.getElementById('fbPlayerContainer').classList.add('hidden');
+                    document.getElementById('genericIframe').classList.add('hidden');
+
+                    currentPlayerType = 'html5';
+                    iframeContainer.classList.add('hidden');
+                    moviePlayer.classList.remove('hidden');
+                    moviePlayer.src = directMp4;
+                    moviePlayer.play().catch(()=>{});
+                    saveState();
+                    return; // الخروج لأن المشغل الداخلي يعمل بنجاح
+                }
             }
 
             activatePlayerMode();
@@ -542,9 +633,6 @@
             ytPlayerContainer.classList.add('hidden');
             document.getElementById('fbPlayerContainer').classList.add('hidden');
             document.getElementById('genericIframe').classList.add('hidden');
-            
-            const ytId = extractYtId(finalUrl);
-            const fbRegex = /(facebook\.com|fb\.watch)\//i;
 
             if (ytId) {
                 // 1. YouTube Video
@@ -679,6 +767,8 @@
                     });
                 }
 
+                loopStartIndex = -1;
+                loopEndIndex = -1;
                 renderDialogueCards();
                 saveState();
                 alert("تم تحميل الترجمة بنجاح مع الاحتفاظ بتنسيقاتك (الألوان والتظليل)!");
@@ -707,9 +797,19 @@
                 if (!dialogueData[i].ar) {
                     try {
                         let textForTranslation = dialogueData[i].en.replace(/<[^>]+>/g, '');
-                        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(textForTranslation)}&langpair=en|ar`);
+                        // Root Solution: Replaced MyMemory API with Google Translate free endpoint
+                        const googleTransUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=${encodeURIComponent(textForTranslation)}`;
+                        const res = await fetch(googleTransUrl);
                         const data = await res.json();
-                        dialogueData[i].ar = data.responseData.translatedText || "...";
+                        
+                        let translatedText = "";
+                        if (data && data[0]) {
+                            data[0].forEach(item => {
+                                if (item[0]) translatedText += item[0];
+                            });
+                        }
+                        
+                        dialogueData[i].ar = translatedText || "...";
                         
                         const arTextEl = document.getElementById(`ar-${i}`);
                         if(arTextEl) arTextEl.innerHTML = dialogueData[i].ar;
@@ -814,13 +914,14 @@
                         <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
                             <i class="fas fa-play text-[10px]"></i> العب (${item.time || formatSecondsToTime(item.startTime)})
                         </button>
-                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                            <i class="fas fa-redo text-[10px]"></i> تكرار مستمر
+                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200">
+                            <i class="fas fa-redo text-[10px]"></i> تكرار
                         </button>
                     </div>
                 `;
                 container.appendChild(card);
             });
+            updateRepeatUI();
         }
 
         // --- Interaction Logic ---
@@ -834,10 +935,17 @@
         window.jumpToTime = function(seconds, isLooping = false) {
             hasPausedForCurrentSubtitle = false;
             
-            if (!isLooping && repeatingSubtitleIndex !== -1) {
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('bg-blue-500', 'bg-gray-50');
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('text-white', 'text-gray-600');
-                repeatingSubtitleIndex = -1;
+            if (!isLooping && loopStartIndex !== -1) {
+                // Cancel loop ONLY if user manually clicks "Play" on a subtitle that is completely outside the current loop range
+                const startItem = dialogueData[loopStartIndex];
+                const endItem = dialogueData[loopEndIndex];
+                
+                // 1 second buffer allowed to be considered "inside"
+                if (seconds < startItem.startTime - 1 || seconds > endItem.endTime) {
+                    loopStartIndex = -1;
+                    loopEndIndex = -1;
+                    updateRepeatUI();
+                }
             }
 
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -855,18 +963,64 @@
             }
         };
 
-        window.toggleRepeat = function(index) {
-            if (repeatingSubtitleIndex !== -1) {
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('bg-blue-500', 'bg-gray-50');
-                document.getElementById(`repeat-btn-${repeatingSubtitleIndex}`).classList.replace('text-white', 'text-gray-600');
+        window.updateRepeatUI = function() {
+            // 1. Reset all buttons visually safely
+            document.querySelectorAll('.repeat-btn').forEach(btn => {
+                btn.className = "repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200";
+                btn.innerHTML = `<i class="fas fa-redo text-[10px]"></i> تكرار`;
+            });
+
+            // 2. Apply loop highlights precisely
+            if (loopStartIndex !== -1 && loopEndIndex !== -1) {
+                for (let i = loopStartIndex; i <= loopEndIndex; i++) {
+                    const btn = document.getElementById(`repeat-btn-${i}`);
+                    if (btn) {
+                        if (loopStartIndex === loopEndIndex) {
+                            // Single loop
+                            btn.className = "repeat-btn flex-1 bg-blue-500 active:bg-blue-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200 shadow-md";
+                            btn.innerHTML = `<i class="fas fa-redo-alt text-[10px]"></i> قيد التكرار`;
+                        } else {
+                            // Range loop
+                            btn.className = "repeat-btn flex-1 bg-indigo-500 active:bg-indigo-600 text-white py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200 shadow-md";
+                            if (i === loopStartIndex) {
+                                btn.innerHTML = `<i class="fas fa-step-backward text-[10px]"></i> بداية المقطع`;
+                            } else if (i === loopEndIndex) {
+                                btn.innerHTML = `<i class="fas fa-step-forward text-[10px]"></i> نهاية المقطع`;
+                            } else {
+                                btn.innerHTML = `<i class="fas fa-link text-[10px]"></i> ضمن المقطع`;
+                            }
+                        }
+                    }
+                }
             }
-            if (repeatingSubtitleIndex === index) {
-                repeatingSubtitleIndex = -1;
-            } else {
-                repeatingSubtitleIndex = index;
-                document.getElementById(`repeat-btn-${index}`).classList.replace('bg-gray-50', 'bg-blue-500');
-                document.getElementById(`repeat-btn-${index}`).classList.replace('text-gray-600', 'text-white');
-                jumpToTime(dialogueData[index].startTime, true);
+        };
+
+        window.toggleRepeat = function(index) {
+            if (loopStartIndex === -1) {
+                // No active loop -> start new single loop
+                loopStartIndex = index;
+                loopEndIndex = index;
+            } else if (loopStartIndex === index && loopEndIndex === index) {
+                // Clicked the active single loop -> cancel it
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+            } else if (index >= loopStartIndex && index <= loopEndIndex) {
+                // Clicked somewhere INSIDE an active multi-loop range -> cancel it entirely
+                loopStartIndex = -1;
+                loopEndIndex = -1;
+            } else if (index > loopEndIndex) {
+                // Clicked a subtitle BELOW the current loop -> expand the loop downwards
+                loopEndIndex = index;
+            } else if (index < loopStartIndex) {
+                // Clicked a subtitle ABOVE the current loop -> expand the loop upwards
+                loopStartIndex = index;
+            }
+            
+            updateRepeatUI();
+            
+            // Jump to the beginning of the newly established loop
+            if (loopStartIndex !== -1) {
+                jumpToTime(dialogueData[loopStartIndex].startTime, true);
             }
         };
 
@@ -893,15 +1047,18 @@
             if (currentPlayerType !== 'none' && currentPlayerType !== 'generic_iframe') {
                 const currentTime = getMediaTime() - subtitleOffset; 
                 
-                if (repeatingSubtitleIndex !== -1) {
-                    const loopItem = dialogueData[repeatingSubtitleIndex];
-                    if (currentTime >= loopItem.endTime) {
-                        jumpToTime(loopItem.startTime, true);
+                // Handling continuous repetition logic for ranges
+                if (loopStartIndex !== -1 && loopEndIndex !== -1) {
+                    const loopStartItem = dialogueData[loopStartIndex];
+                    const loopEndItem = dialogueData[loopEndIndex];
+                    if (currentTime >= loopEndItem.endTime) {
+                        jumpToTime(loopStartItem.startTime, true);
                         return requestAnimationFrame(checkSubtitlesLoop);
                     }
                 }
 
-                if (autoPauseEnabled && currentActiveSubtitleIndex !== -1 && !hasPausedForCurrentSubtitle && repeatingSubtitleIndex === -1) {
+                // Handling auto pause logic (suspended if loop is active)
+                if (autoPauseEnabled && currentActiveSubtitleIndex !== -1 && !hasPausedForCurrentSubtitle && loopStartIndex === -1) {
                     const currentItem = dialogueData[currentActiveSubtitleIndex];
                     if (currentTime >= currentItem.endTime) {
                         if (currentPlayerType === 'html5') moviePlayer.pause();
@@ -1002,11 +1159,12 @@
             
             speakText(cleanWord);
 
-            // 1. Fetch Basic Translation (MyMemory)
+            // 1. Fetch Basic Translation (Root Solution: Google Translate free endpoint)
             try {
-                const transRes = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanWord)}&langpair=en|ar`);
+                const googleTransUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=${encodeURIComponent(cleanWord)}`;
+                const transRes = await fetch(googleTransUrl);
                 const transData = await transRes.json();
-                document.getElementById('dictAr').innerText = transData.responseData.translatedText || "لا توجد ترجمة.";
+                document.getElementById('dictAr').innerText = transData[0][0][0] || "لا توجد ترجمة.";
             } catch (e) { document.getElementById('dictAr').innerText = "خطأ في الاتصال."; }
 
             // 2. Fetch Examples (Tatoeba API via secure CORS Proxy)
