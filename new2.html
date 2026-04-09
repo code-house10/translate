@@ -530,41 +530,44 @@
             mainHeader.classList.add('hidden');
         }
 
-        // --- Facebook Video Extractor (Web Video Caster Approach) ---
+        // --- Advanced Facebook Video Extractor ---
         async function extractFacebookVideo(url) {
             try {
-                // نستخدم بروكسي لجلب كود الصفحة (يعمل للفيديوهات العامة تماماً مثل فكرة Web Video Caster)
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                // نستخدم بروكسي لجلب كود الصفحة كـ Raw Text لتجنب أي تعديل على الـ JSON من قبل البروكسي
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
                 const response = await fetch(proxyUrl);
-                const data = await response.json();
-                const html = data.contents;
+                const html = await response.text();
 
                 if(!html) return null;
 
-                // البحث عن رابط الفيديو المباشر داخل الكود (HD أو SD)
+                // أنماط البحث الشاملة (Regex) للوصول للرابط المباشر داخل بنية فيسبوك المعقدة
                 const regexes = [
                     /"playable_url_quality_hd":"([^"]+)"/,
-                    /"playable_url":"([^"]+)"/,
                     /"browser_native_hd_url":"([^"]+)"/,
-                    /"browser_native_sd_url":"([^"]+)"/,
-                    /<meta property="og:video" content="([^"]+)"/
+                    /"playable_url":"([^"]+)"/,
+                    /"browser_native_sd_url":"([^"]+)"/
                 ];
                 
-                let matchedUrl = null;
                 for (let r of regexes) {
                     const match = html.match(r);
                     if (match && match[1]) {
-                        matchedUrl = match[1].replace(/\\\//g, '/'); // إصلاح علامات الشرطة
-                        try { matchedUrl = JSON.parse(`"${matchedUrl}"`); } catch(e){} // فك تشفير Unicode
+                        let matchedUrl = match[1];
                         
-                        // فك تشفير كيانات HTML مثل &amp;
-                        const txt = document.createElement("textarea");
-                        txt.innerHTML = matchedUrl;
-                        matchedUrl = txt.value;
-                        break;
+                        // 1. إزالة الشرطات المائلة العكسية التي يضيفها فيسبوك للتشفير
+                        matchedUrl = matchedUrl.replace(/\\\//g, '/');
+                        
+                        // 2. فك تشفير ترميز الـ Unicode (مثل \u0025 التي تعني علامة %)
+                        matchedUrl = matchedUrl.replace(/\\u([\d\w]{4})/gi, function (m, grp) {
+                            return String.fromCharCode(parseInt(grp, 16));
+                        });
+                        
+                        // التحقق النهائي أن الرابط أصبح صالحاً للتشغيل
+                        if (matchedUrl.startsWith('http')) {
+                            return matchedUrl;
+                        }
                     }
                 }
-                return matchedUrl;
+                return null;
             } catch (e) {
                 console.error("Extraction error:", e);
                 return null;
@@ -620,6 +623,7 @@
                     saveState();
                     return; // الخروج لأن المشغل الداخلي يعمل بنجاح
                 }
+                // في حال فشل الاستخراج، سيكمل الكود ليستخدم مشغل فيسبوك الكلاسيكي كحل بديل
             }
 
             activatePlayerMode();
@@ -656,7 +660,7 @@
                 else { setTimeout(initYTPlayer, 1000); }
 
             } else if (fbRegex.test(finalUrl)) {
-                // 2. Facebook Video API
+                // 2. Facebook Video API (Fallback إذا فشل الاستخراج المباشر)
                 currentPlayerType = 'facebook';
                 iframeContainer.classList.remove('hidden');
                 document.getElementById('fbPlayerContainer').classList.remove('hidden');
