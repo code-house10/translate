@@ -86,7 +86,7 @@
                             <button id="loadUrlBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 text-xs font-bold whitespace-nowrap">تشغيل</button>
                         </div>
                         <!-- Facebook Warning -->
-                        <p id="fbWarning" class="text-yellow-400 text-[10px] hidden mb-3 leading-tight"><i class="fas fa-exclamation-triangle"></i> تنبيه: قد يمنع فيسبوك تشغيل بعض الفيديوهات هنا بسبب حقوق النشر. إذا لم يعمل، يُرجى تحميل الفيديو ورفعه من جهازك أدناه.</p>
+                        <p id="fbWarning" class="text-blue-400 text-[10px] hidden mb-3 leading-tight"><i class="fas fa-magic"></i> تنبيه: سيقوم النظام بمحاولة استخراج رابط MP4 المباشر من فيسبوك كما تفعل تطبيقات مثل Web Video Caster لضمان أفضل تجربة، قد يستغرق هذا بضع ثوانٍ.</p>
                         
                         <div class="text-center text-gray-500 text-[10px] mb-2 mt-2">أو من جهازك</div>
                         <input type="file" id="videoFileInput" accept="video/mp4,video/*" class="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-gray-700 file:text-white"/>
@@ -131,11 +131,15 @@
         <!-- Mobile Smart Toolbar -->
         <div id="mobileToolbar" class="hidden bg-gray-800 border-t border-gray-900 flex flex-col w-full">
             <div class="flex justify-between items-center px-2 py-2 w-full gap-1 border-b border-gray-700">
-                <button id="autoPauseBtn" class="flex-1 flex items-center justify-center gap-1 text-emerald-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700">
-                    <i class="fas fa-play-circle" id="autoPauseIcon"></i>
-                    <span id="autoPauseText">إيقاف الجملة (مُعطّل)</span>
+                <button onclick="cycleSpeed()" class="flex items-center justify-center gap-1 text-purple-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700" style="flex: 0.8;">
+                    <i class="fas fa-bolt"></i>
+                    <span id="speedValueText" dir="ltr">1.0x</span>
                 </button>
-                <div class="flex-1 flex items-center justify-center gap-1 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold text-gray-300 border border-gray-700">
+                <button id="autoPauseBtn" class="flex items-center justify-center gap-1 text-emerald-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:scale-95 border border-gray-700" style="flex: 1.2;">
+                    <i class="fas fa-play-circle" id="autoPauseIcon"></i>
+                    <span id="autoPauseText">إيقاف (مُعطّل)</span>
+                </button>
+                <div class="flex items-center justify-center gap-1 bg-gray-900 px-1 py-1.5 rounded-lg text-[10px] font-bold text-gray-300 border border-gray-700" style="flex: 1.2;">
                     <span title="مزامنة الترجمة">تزامن:</span>
                     <button onclick="adjustSync(-0.25)" class="text-blue-400 px-1 text-sm">-</button>
                     <span id="syncValueDisplay" class="w-8 text-center" dir="ltr">0.0s</span>
@@ -292,6 +296,10 @@
         let subtitleOffset = 0; 
         let isTranslatingQueue = false;
 
+        // Speed State
+        let playbackSpeed = 1.0;
+        const speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+
         // DOM Elements
         const container = document.getElementById('conversationList');
         const autoPauseBtn = document.getElementById('autoPauseBtn');
@@ -325,16 +333,23 @@
             localStorage.setItem('jungle_dialogue', JSON.stringify(dialogueData));
             localStorage.setItem('jungle_vid_url', document.getElementById('videoUrlInput').value);
             localStorage.setItem('jungle_sync', subtitleOffset);
+            localStorage.setItem('jungle_speed', playbackSpeed);
         }
 
         function loadState() {
             const savedData = localStorage.getItem('jungle_dialogue');
             const savedUrl = localStorage.getItem('jungle_vid_url');
             const savedSync = localStorage.getItem('jungle_sync');
+            const savedSpeed = localStorage.getItem('jungle_speed');
 
             if (savedSync) {
                 subtitleOffset = parseFloat(savedSync);
                 syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            }
+
+            if (savedSpeed) {
+                playbackSpeed = parseFloat(savedSpeed);
+                document.getElementById('speedValueText').innerText = playbackSpeed.toFixed(1) + 'x';
             }
 
             if (savedData && savedData !== "[]") {
@@ -377,6 +392,27 @@
             subtitleOffset += val;
             syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
             saveState();
+        };
+
+        window.cycleSpeed = function() {
+            if (currentPlayerType === 'facebook') {
+                alert("تنبيه: مشغل فيسبوك الرسمي لا يدعم التحكم في السرعة. يُرجى استخدام الرابط المباشر (MP4) لتعمل هذه الخاصية.");
+                return;
+            }
+            let idx = speedOptions.indexOf(playbackSpeed);
+            idx = (idx + 1) % speedOptions.length;
+            playbackSpeed = speedOptions[idx];
+            document.getElementById('speedValueText').innerText = playbackSpeed.toFixed(1) + 'x';
+            applyPlaybackSpeed();
+            saveState();
+        };
+
+        window.applyPlaybackSpeed = function() {
+            if (currentPlayerType === 'html5') {
+                moviePlayer.playbackRate = playbackSpeed;
+            } else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.setPlaybackRate === 'function') {
+                ytPlayer.setPlaybackRate(playbackSpeed);
+            }
         };
 
         // --- Library System ---
@@ -530,8 +566,52 @@
             mainHeader.classList.add('hidden');
         }
 
+        // --- Advanced Facebook Video Extractor ---
+        async function extractFacebookVideo(url) {
+            try {
+                // نستخدم بروكسي لجلب كود الصفحة كـ Raw Text لتجنب أي تعديل على الـ JSON من قبل البروكسي
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                const response = await fetch(proxyUrl);
+                const html = await response.text();
+
+                if(!html) return null;
+
+                // أنماط البحث الشاملة (Regex) للوصول للرابط المباشر داخل بنية فيسبوك المعقدة
+                const regexes = [
+                    /"playable_url_quality_hd":"([^"]+)"/,
+                    /"browser_native_hd_url":"([^"]+)"/,
+                    /"playable_url":"([^"]+)"/,
+                    /"browser_native_sd_url":"([^"]+)"/
+                ];
+                
+                for (let r of regexes) {
+                    const match = html.match(r);
+                    if (match && match[1]) {
+                        let matchedUrl = match[1];
+                        
+                        // 1. إزالة الشرطات المائلة العكسية التي يضيفها فيسبوك للتشفير
+                        matchedUrl = matchedUrl.replace(/\\\//g, '/');
+                        
+                        // 2. فك تشفير ترميز الـ Unicode (مثل \u0025 التي تعني علامة %)
+                        matchedUrl = matchedUrl.replace(/\\u([\d\w]{4})/gi, function (m, grp) {
+                            return String.fromCharCode(parseInt(grp, 16));
+                        });
+                        
+                        // التحقق النهائي أن الرابط أصبح صالحاً للتشغيل
+                        if (matchedUrl.startsWith('http')) {
+                            return matchedUrl;
+                        }
+                    }
+                }
+                return null;
+            } catch (e) {
+                console.error("Extraction error:", e);
+                return null;
+            }
+        }
+
         // --- URL Parser & Universal Player Router ---
-        document.getElementById('loadUrlBtn').addEventListener('click', function() {
+        document.getElementById('loadUrlBtn').addEventListener('click', async function() {
             let rawUrl = document.getElementById('videoUrlInput').value.trim();
             if (!rawUrl) return;
 
@@ -540,6 +620,50 @@
             if (rawUrl.includes('<iframe') && rawUrl.includes('src=')) {
                 const srcMatch = rawUrl.match(/src=["']([^"']+)["']/);
                 if (srcMatch) finalUrl = srcMatch[1];
+            }
+
+            const loadBtn = document.getElementById('loadUrlBtn');
+            const originalBtnText = loadBtn.innerHTML;
+            
+            const ytId = extractYtId(finalUrl);
+            const fbRegex = /(facebook\.com|fb\.watch)\//i;
+            
+            // التعديل الجديد: التعرف على أي رابط يحتوي mp4 أو سيرفرات فيسبوك كفيديو مباشر
+            const isDirectVideo = finalUrl.match(/\.(mp4|webm|ogg)(?:[\?#]|$)/i) || finalUrl.includes('.mp4') || finalUrl.includes('fbcdn.net') || finalUrl.startsWith('blob:');
+
+            // 1. محاولة استخراج الرابط المباشر من فيسبوك قبل تفعيل وضع اللاعب
+            if (fbRegex.test(finalUrl) && !isDirectVideo) {
+                loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الاستخراج...';
+                loadBtn.disabled = true;
+                
+                const directMp4 = await extractFacebookVideo(finalUrl);
+                
+                loadBtn.innerHTML = originalBtnText;
+                loadBtn.disabled = false;
+
+                if (directMp4) {
+                    // نجاح الاستخراج! سيتم تشغيله كملف محلي (أفضل أداء للتزامن)
+                    activatePlayerMode();
+                    
+                    moviePlayer.pause();
+                    moviePlayer.classList.add('hidden');
+                    if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+                    if (fbPlayer && typeof fbPlayer.pause === 'function') fbPlayer.pause();
+                    
+                    ytPlayerContainer.classList.add('hidden');
+                    document.getElementById('fbPlayerContainer').classList.add('hidden');
+                    document.getElementById('genericIframe').classList.add('hidden');
+
+                    currentPlayerType = 'html5';
+                    iframeContainer.classList.add('hidden');
+                    moviePlayer.classList.remove('hidden');
+                    moviePlayer.src = directMp4;
+                    moviePlayer.play().catch(()=>{});
+                    applyPlaybackSpeed();
+                    saveState();
+                    return; // الخروج لأن المشغل الداخلي يعمل بنجاح
+                }
+                // في حال فشل الاستخراج، سيكمل الكود ليستخدم مشغل فيسبوك الكلاسيكي كحل بديل
             }
 
             activatePlayerMode();
@@ -553,9 +677,6 @@
             ytPlayerContainer.classList.add('hidden');
             document.getElementById('fbPlayerContainer').classList.add('hidden');
             document.getElementById('genericIframe').classList.add('hidden');
-            
-            const ytId = extractYtId(finalUrl);
-            const fbRegex = /(facebook\.com|fb\.watch)\//i;
 
             if (ytId) {
                 // 1. YouTube Video
@@ -578,8 +699,8 @@
                 if (isYtApiReady) { initYTPlayer(); } 
                 else { setTimeout(initYTPlayer, 1000); }
 
-            } else if (fbRegex.test(finalUrl)) {
-                // 2. Facebook Video API
+            } else if (fbRegex.test(finalUrl) && !isDirectVideo) {
+                // 2. Facebook Video API (Fallback إذا فشل الاستخراج المباشر)
                 currentPlayerType = 'facebook';
                 iframeContainer.classList.remove('hidden');
                 document.getElementById('fbPlayerContainer').classList.remove('hidden');
@@ -595,13 +716,14 @@
                     FB.XFBML.parse(document.getElementById('fbPlayerContainer'));
                 }
 
-            } else if (finalUrl.match(/\.(mp4|webm|ogg)$/i) || finalUrl.startsWith('blob:')) {
-                // 3. Direct HTML5 Video File
+            } else if (isDirectVideo) {
+                // 3. Direct HTML5 Video File (Supports long CDNs and queries)
                 currentPlayerType = 'html5';
                 iframeContainer.classList.add('hidden');
                 moviePlayer.classList.remove('hidden');
                 moviePlayer.src = finalUrl;
                 moviePlayer.play().catch(()=>{});
+                applyPlaybackSpeed();
             } else {
                 // 4. Generic Iframe (Vimeo, Dailymotion, Etc.)
                 // Note: Time Sync for subtitles doesn't work well via generic iframe without API.
@@ -877,9 +999,11 @@
             if (currentPlayerType === 'html5') {
                 moviePlayer.currentTime = safeTime;
                 moviePlayer.play().catch(()=>{});
+                applyPlaybackSpeed();
             } else if (currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.seekTo === 'function') {
                 ytPlayer.seekTo(safeTime, true);
                 ytPlayer.playVideo();
+                applyPlaybackSpeed();
             } else if (currentPlayerType === 'facebook' && fbPlayer && typeof fbPlayer.seek === 'function') {
                 fbPlayer.seek(safeTime);
                 fbPlayer.play();
@@ -955,12 +1079,12 @@
                 autoPauseBtn.classList.replace('text-emerald-400', 'text-blue-400');
                 autoPauseBtn.classList.replace('border-gray-700', 'border-blue-500');
                 icon.className = "fas fa-pause-circle";
-                text.textContent = "إيقاف الجملة (مُفعّل)";
+                text.textContent = "إيقاف (مُفعّل)";
             } else {
                 autoPauseBtn.classList.replace('text-blue-400', 'text-emerald-400');
                 autoPauseBtn.classList.replace('border-blue-500', 'border-gray-700');
                 icon.className = "fas fa-play-circle";
-                text.textContent = "إيقاف الجملة (مُعطّل)";
+                text.textContent = "إيقاف (مُعطّل)";
                 hasPausedForCurrentSubtitle = false; 
             }
         });
