@@ -102,7 +102,8 @@
             </div>
 
             <!-- Media Elements -->
-            <video id="moviePlayer" crossorigin="anonymous" class="w-full h-full object-contain hidden" controls playsinline webkit-playsinline></video>
+            <!-- Removed crossorigin="anonymous" to allow fbcdn and strict CDN links to play smoothly -->
+            <video id="moviePlayer" class="w-full h-full object-contain hidden" controls playsinline webkit-playsinline></video>
             
             <div id="iframeContainer" class="w-full h-full hidden pointer-events-auto relative">
                 <!-- YouTube Container -->
@@ -566,13 +567,30 @@
             mainHeader.classList.add('hidden');
         }
 
-        // --- Advanced Facebook Video Extractor ---
+        // --- Advanced Facebook Video Extractor (Multi-Proxy) ---
         async function extractFacebookVideo(url) {
             try {
-                // نستخدم بروكسي لجلب كود الصفحة كـ Raw Text لتجنب أي تعديل على الـ JSON من قبل البروكسي
-                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-                const response = await fetch(proxyUrl);
-                const html = await response.text();
+                // استخدام أكثر من بروكسي كبدائل في حال قام فيسبوك بحظر أحدهم مؤقتاً
+                const proxies = [
+                    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+                    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+                ];
+                
+                let html = null;
+                for (let proxy of proxies) {
+                    try {
+                        const response = await fetch(proxy);
+                        if (response.ok) {
+                            html = await response.text();
+                            // التأكد من أن الرد يحتوي على عناصر فيديو فيسبوك وليس رسالة خطأ
+                            if (html && (html.includes('playable_url') || html.includes('og:video'))) {
+                                break; 
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("Proxy failed, trying fallback...");
+                    }
+                }
 
                 if(!html) return null;
 
@@ -581,7 +599,8 @@
                     /"playable_url_quality_hd":"([^"]+)"/,
                     /"browser_native_hd_url":"([^"]+)"/,
                     /"playable_url":"([^"]+)"/,
-                    /"browser_native_sd_url":"([^"]+)"/
+                    /"browser_native_sd_url":"([^"]+)"/,
+                    /content="([^"]+\.mp4[^"]*)"/i // محاولة الاستخراج من الميتا تاج كبديل قوي
                 ];
                 
                 for (let r of regexes) {
@@ -596,6 +615,9 @@
                         matchedUrl = matchedUrl.replace(/\\u([\d\w]{4})/gi, function (m, grp) {
                             return String.fromCharCode(parseInt(grp, 16));
                         });
+                        
+                        // 3. فك تشفير كيانات HTML مثل &amp;
+                        matchedUrl = matchedUrl.replace(/&amp;/g, '&');
                         
                         // التحقق النهائي أن الرابط أصبح صالحاً للتشغيل
                         if (matchedUrl.startsWith('http')) {
@@ -628,7 +650,7 @@
             const ytId = extractYtId(finalUrl);
             const fbRegex = /(facebook\.com|fb\.watch)\//i;
             
-            // التعديل الجديد: التعرف على أي رابط يحتوي mp4 أو سيرفرات فيسبوك كفيديو مباشر
+            // التعرف على أي رابط يحتوي mp4 أو سيرفرات فيسبوك كفيديو مباشر
             const isDirectVideo = finalUrl.match(/\.(mp4|webm|ogg)(?:[\?#]|$)/i) || finalUrl.includes('.mp4') || finalUrl.includes('fbcdn.net') || finalUrl.startsWith('blob:');
 
             // 1. محاولة استخراج الرابط المباشر من فيسبوك قبل تفعيل وضع اللاعب
