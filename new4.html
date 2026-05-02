@@ -55,9 +55,17 @@
                 </h1>
                 <p class="text-emerald-100 text-[10px] mt-1">ارفع الفيديو والترجمة للبدء</p>
             </div>
-            <button onclick="openLibraryModal()" class="bg-emerald-800 hover:bg-emerald-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center gap-1">
-                <i class="fas fa-book"></i> مكتبتي
-            </button>
+            <div class="flex items-center gap-2">
+                <button onclick="openCloudLibraryModal()" class="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center gap-1">
+                    <i class="fas fa-cloud"></i> السحابة
+                </button>
+                <button onclick="openSavedPhrasesModal()" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center gap-1">
+                    <i class="fas fa-star"></i> محفوظاتي
+                </button>
+                <button onclick="openLibraryModal()" class="bg-emerald-800 hover:bg-emerald-900 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors flex items-center gap-1">
+                    <i class="fas fa-book"></i> مكتبتي
+                </button>
+            </div>
         </div>
     </header>
 
@@ -73,8 +81,11 @@
                 
                 <div class="w-full max-w-md space-y-4">
                     <!-- Library Quick Access -->
+                    <button onclick="openCloudLibraryModal()" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 rounded-xl text-sm border border-sky-500 shadow-lg mb-2 flex justify-center items-center gap-2">
+                        <i class="fas fa-cloud"></i> فتح درس محفوظ من السحابة
+                    </button>
                     <button onclick="openLibraryModal()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-sm border border-indigo-500 shadow-lg mb-2 flex justify-center items-center gap-2">
-                        <i class="fas fa-folder-open"></i> فتح درس محفوظ من المكتبة
+                        <i class="fas fa-folder-open"></i> فتح درس محفوظ من المكتبة المحلية
                     </button>
 
                     <!-- Video Section -->
@@ -101,6 +112,15 @@
                             <i class="fas fa-wand-magic-sparkles"></i> مساعد ترجمة ChatGPT الطبيعية بدون API
                         </button>
                         <p class="text-[10px] text-amber-200 mt-2 leading-relaxed">يقسم ملف SRT إلى دفعات، يعطيك Prompt جاهز للنسخ إلى ChatGPT Plus، ثم تلصق الترجمة هنا لدمجها وتحميلها.</p>
+                        <div class="grid grid-cols-2 gap-2 mt-3">
+                            <button onclick="saveCurrentToCloud()" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 rounded-xl text-xs flex justify-center items-center gap-1">
+                                <i class="fas fa-cloud-upload-alt"></i> حفظ سحابي
+                            </button>
+                            <button onclick="openCloudLibraryModal()" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 rounded-xl text-xs flex justify-center items-center gap-1">
+                                <i class="fas fa-cloud-download-alt"></i> جلب السحابة
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-sky-200 mt-2 leading-relaxed">يحفظ رابط الفيديو وملف الترجمة/العبارات على Supabase حتى تفتحها من أي جهاز.</p>
                     </div>
                 </div>
             </div>
@@ -158,6 +178,13 @@
                 <button onclick="openLibraryModal()" class="flex-1 flex items-center justify-center gap-1 text-yellow-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700">
                     <i class="fas fa-book"></i> المكتبة
                 </button>
+                <button onclick="openCloudLibraryModal()" class="flex-1 flex items-center justify-center gap-1 text-sky-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700">
+                    <i class="fas fa-cloud"></i> السحابة
+                </button>
+                <button onclick="openSavedPhrasesModal()" class="flex-1 flex items-center justify-center gap-1 text-amber-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700 relative">
+                    <i class="fas fa-star"></i> محفوظاتي
+                    <span id="savedPhrasesBadge" class="hidden absolute -top-1 -left-1 bg-amber-500 text-white text-[9px] min-w-[16px] h-4 px-1 rounded-full leading-4 text-center"></span>
+                </button>
                 <button onclick="resetApp()" class="flex-1 flex items-center justify-center gap-1 text-red-400 bg-gray-900 px-2 py-1.5 rounded-lg text-[10px] font-bold active:bg-gray-700 border border-gray-700">
                     <i class="fas fa-exchange-alt"></i> جديد
                 </button>
@@ -191,6 +218,73 @@
             </div>
             <div class="p-4 overflow-y-auto flex-grow bg-gray-50" id="libraryList">
             </div>
+        </div>
+    </div>
+
+
+    <!-- Cloud Library Modal -->
+    <div id="cloudLibraryModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-70 hidden flex items-end justify-center z-[118] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeCloudLibraryModal()">
+        <div class="bottom-sheet-content bg-white w-full max-h-[90vh] flex flex-col" dir="rtl">
+            <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1 flex-shrink-0"></div>
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center flex-shrink-0">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-cloud text-sky-600"></i> المكتبة السحابية</h3>
+                    <p class="text-[10px] text-gray-500 mt-1">احفظ رابط الفيديو والترجمة والعبارات المحفوظة لتفتحها من أي جهاز.</p>
+                </div>
+                <button onclick="closeCloudLibraryModal()" class="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center active:bg-gray-200">
+                    <i class="fas fa-times text-sm"></i>
+                </button>
+            </div>
+
+            <div class="p-4 overflow-y-auto flex-grow bg-gray-50 space-y-4">
+                <div class="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs text-sky-900 leading-relaxed">
+                    <b>مهم:</b> الاستضافة العادية على Vercel لا تحفظ ملفاتك داخل نفس ملف HTML. لهذا يستخدم هذا القسم Supabase المجاني كتخزين سحابي. أدخل بيانات مشروع Supabase مرة واحدة فقط، ثم استخدم نفس <b>كود المكتبة</b> على أي جهاز لجلب دروسك.
+                </div>
+
+                <div class="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+                    <h4 class="font-bold text-sm text-gray-800 flex items-center gap-2"><i class="fas fa-gear text-sky-600"></i> إعداد الاتصال</h4>
+                    <input id="supabaseUrlInput" type="text" placeholder="SUPABASE_URL" class="w-full border border-gray-300 rounded-lg p-2 text-xs" dir="ltr">
+                    <input id="supabaseKeyInput" type="password" placeholder="SUPABASE_ANON_KEY" class="w-full border border-gray-300 rounded-lg p-2 text-xs" dir="ltr">
+                    <input id="cloudUserCodeInput" type="text" placeholder="كود مكتبتك الخاص - مثال: ramadan-2026" class="w-full border border-gray-300 rounded-lg p-2 text-xs" dir="ltr">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="saveCloudSettings()" class="bg-sky-600 text-white rounded-lg py-2 text-xs font-bold"><i class="fas fa-save"></i> حفظ الإعدادات</button>
+                        <button onclick="copySupabaseSetupSQL()" class="bg-gray-800 text-white rounded-lg py-2 text-xs font-bold"><i class="fas fa-database"></i> نسخ SQL</button>
+                    </div>
+                    <p id="cloudStatusText" class="text-[10px] text-gray-500 leading-relaxed">بعد إنشاء جدول Supabase ونسخ الإعدادات، اضغط تحميل الدروس.</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="saveCurrentToCloud()" class="bg-emerald-600 text-white rounded-xl py-2 text-xs font-bold flex items-center justify-center gap-1">
+                        <i class="fas fa-cloud-upload-alt"></i> حفظ الدرس الحالي
+                    </button>
+                    <button onclick="loadCloudLessons()" class="bg-indigo-600 text-white rounded-xl py-2 text-xs font-bold flex items-center justify-center gap-1">
+                        <i class="fas fa-sync-alt"></i> تحميل الدروس
+                    </button>
+                </div>
+
+                <div id="cloudLessonsList" class="space-y-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Saved Phrases Modal -->
+    <div id="savedPhrasesModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-60 hidden flex items-end justify-center z-[115] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeSavedPhrasesModal()">
+        <div class="bottom-sheet-content bg-white w-full max-h-[88vh] flex flex-col" dir="rtl">
+            <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1 flex-shrink-0"></div>
+            <div class="p-4 border-b border-gray-100 flex justify-between items-center flex-shrink-0">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-star text-amber-500"></i> العبارات المحفوظة</h3>
+                    <p class="text-[10px] text-gray-500 mt-1">احفظ أي subtitle للمراجعة لاحقًا مثل Language Reactor.</p>
+                </div>
+                <button onclick="closeSavedPhrasesModal()" class="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center active:bg-gray-200">
+                    <i class="fas fa-times text-sm"></i>
+                </button>
+            </div>
+            <div class="px-4 py-3 bg-amber-50 border-b border-amber-100 flex gap-2 flex-shrink-0">
+                <input id="savedPhrasesSearch" oninput="renderSavedPhrasesList()" type="search" placeholder="ابحث في العبارات المحفوظة..." class="flex-1 border border-amber-200 rounded-lg p-2 text-xs bg-white">
+                <button onclick="clearAllSavedPhrases()" class="bg-red-50 text-red-600 border border-red-100 px-3 rounded-lg text-xs font-bold">مسح الكل</button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-grow bg-gray-50" id="savedPhrasesList"></div>
         </div>
     </div>
 
@@ -301,6 +395,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         // --- API Initialization ---
         
@@ -368,9 +463,12 @@
         let wasPlayingBeforeDict = false;
         let subtitleOffset = 0; 
         let isTranslatingQueue = false;
+        let savedPhrases = JSON.parse(localStorage.getItem('jungle_saved_phrases') || '[]');
         // الوضع الافتراضي: لا نستخدم ترجمة Google الآلية حتى لا تكون الترجمة حرفية.
         // استخدم مساعد ChatGPT اليدوي للحصول على ترجمة طبيعية بدون API.
         let useAutoMachineTranslation = false;
+        let supabaseClient = null;
+        let cloudLessonsCache = [];
 
         // Speed State
         let playbackSpeed = 1.0;
@@ -417,6 +515,8 @@
             const savedUrl = localStorage.getItem('jungle_vid_url');
             const savedSync = localStorage.getItem('jungle_sync');
             const savedSpeed = localStorage.getItem('jungle_speed');
+            savedPhrases = JSON.parse(localStorage.getItem('jungle_saved_phrases') || '[]');
+            updateSavedPhrasesBadge();
 
             if (savedSync) {
                 subtitleOffset = parseFloat(savedSync);
@@ -490,6 +590,221 @@
                 ytPlayer.setPlaybackRate(playbackSpeed);
             }
         };
+
+
+        // --- Cloud Library (Supabase) ---
+        const SUPABASE_SETUP_SQL = `create table if not exists public.lessons (
+  id uuid primary key default gen_random_uuid(),
+  user_code text not null,
+  title text not null,
+  video_url text,
+  video_type text,
+  sync double precision default 0,
+  dialogue jsonb not null,
+  saved_phrases jsonb default '[]'::jsonb,
+  created_at timestamptz default now()
+);
+
+alter table public.lessons enable row level security;
+
+drop policy if exists "allow anon lesson access" on public.lessons;
+create policy "allow anon lesson access"
+on public.lessons
+for all
+to anon
+using (true)
+with check (true);`;
+
+        function getCloudConfig() {
+            return {
+                url: localStorage.getItem('jungle_supabase_url') || '',
+                key: localStorage.getItem('jungle_supabase_key') || '',
+                userCode: localStorage.getItem('jungle_cloud_user_code') || ''
+            };
+        }
+
+        function setCloudStatus(message, type = 'info') {
+            const el = document.getElementById('cloudStatusText');
+            if (!el) return;
+            const colors = {
+                info: 'text-gray-500',
+                ok: 'text-emerald-600',
+                warn: 'text-amber-600',
+                error: 'text-red-600'
+            };
+            el.className = `text-[10px] leading-relaxed ${colors[type] || colors.info}`;
+            el.textContent = message;
+        }
+
+        function getSupabaseClient() {
+            const cfg = getCloudConfig();
+            if (!cfg.url || !cfg.key || !cfg.userCode) {
+                setCloudStatus('أدخل SUPABASE_URL و SUPABASE_ANON_KEY وكود المكتبة أولًا.', 'warn');
+                return null;
+            }
+            if (!window.supabase || !window.supabase.createClient) {
+                setCloudStatus('تعذر تحميل مكتبة Supabase. تحقق من الاتصال بالإنترنت.', 'error');
+                return null;
+            }
+            if (!supabaseClient) supabaseClient = window.supabase.createClient(cfg.url, cfg.key);
+            return supabaseClient;
+        }
+
+        window.openCloudLibraryModal = function() {
+            const cfg = getCloudConfig();
+            const modal = document.getElementById('cloudLibraryModal');
+            document.getElementById('supabaseUrlInput').value = cfg.url;
+            document.getElementById('supabaseKeyInput').value = cfg.key;
+            document.getElementById('cloudUserCodeInput').value = cfg.userCode;
+            renderCloudLessonsList();
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('show', 'opacity-100', 'pointer-events-auto'), 10);
+            if (cfg.url && cfg.key && cfg.userCode) loadCloudLessons(false);
+        };
+
+        window.closeCloudLibraryModal = function() {
+            const modal = document.getElementById('cloudLibraryModal');
+            modal.classList.remove('show', 'opacity-100', 'pointer-events-auto');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        };
+
+        window.saveCloudSettings = function() {
+            const url = document.getElementById('supabaseUrlInput').value.trim();
+            const key = document.getElementById('supabaseKeyInput').value.trim();
+            const userCode = document.getElementById('cloudUserCodeInput').value.trim();
+            if (!url || !key || !userCode) return setCloudStatus('كل الحقول مطلوبة.', 'warn');
+            localStorage.setItem('jungle_supabase_url', url);
+            localStorage.setItem('jungle_supabase_key', key);
+            localStorage.setItem('jungle_cloud_user_code', userCode);
+            supabaseClient = null;
+            setCloudStatus('تم حفظ إعدادات السحابة على هذا الجهاز.', 'ok');
+        };
+
+        window.copySupabaseSetupSQL = async function() {
+            try {
+                await navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+                setCloudStatus('تم نسخ كود SQL. الصقه في Supabase SQL Editor ثم اضغط Run.', 'ok');
+            } catch (e) {
+                alert(SUPABASE_SETUP_SQL);
+            }
+        };
+
+        window.saveCurrentToCloud = async function() {
+            if (dialogueData.length === 0) return alert('لا يوجد ملف ترجمة لحفظه. ارفع SRT أولًا.');
+            const sb = getSupabaseClient();
+            if (!sb) { openCloudLibraryModal(); return; }
+            const cfg = getCloudConfig();
+            const urlToSave = document.getElementById('videoUrlInput').value.trim();
+            if (!urlToSave) return alert('ضع رابط الفيديو أولًا حتى يتم حفظه مع الترجمة.');
+            if (urlToSave.startsWith('blob:')) {
+                alert('هذا فيديو مرفوع من جهازك، ولن يعمل على جهاز آخر. ضع رابط فيديو مباشر أو رابط يوتيوب/فيسبوك ثم احفظ سحابيًا.');
+                return;
+            }
+            const title = prompt('اسم الدرس على السحابة:', `درس ${new Date().toLocaleDateString('ar-EG')}`);
+            if (!title) return;
+            setCloudStatus('جاري حفظ الدرس على السحابة...', 'info');
+            const payload = {
+                user_code: cfg.userCode,
+                title,
+                video_url: urlToSave,
+                video_type: currentPlayerType,
+                sync: subtitleOffset,
+                dialogue: dialogueData,
+                saved_phrases: savedPhrases
+            };
+            const { error } = await sb.from('lessons').insert(payload);
+            if (error) {
+                console.error(error);
+                setCloudStatus('فشل الحفظ: ' + error.message, 'error');
+                alert('فشل الحفظ السحابي. تأكد من إنشاء الجدول وتشغيل كود SQL.');
+                return;
+            }
+            setCloudStatus('تم حفظ الدرس على السحابة بنجاح.', 'ok');
+            await loadCloudLessons(false);
+        };
+
+        window.loadCloudLessons = async function(showAlertOnEmpty = true) {
+            const sb = getSupabaseClient();
+            if (!sb) return;
+            const cfg = getCloudConfig();
+            setCloudStatus('جاري تحميل الدروس من السحابة...', 'info');
+            const { data, error } = await sb
+                .from('lessons')
+                .select('id,title,video_url,video_type,sync,dialogue,saved_phrases,created_at')
+                .eq('user_code', cfg.userCode)
+                .order('created_at', { ascending: false });
+            if (error) {
+                console.error(error);
+                setCloudStatus('فشل تحميل الدروس: ' + error.message, 'error');
+                return;
+            }
+            cloudLessonsCache = data || [];
+            renderCloudLessonsList();
+            setCloudStatus(`تم تحميل ${cloudLessonsCache.length} درس من السحابة.`, 'ok');
+            if (showAlertOnEmpty && cloudLessonsCache.length === 0) alert('لا توجد دروس محفوظة لهذا الكود بعد.');
+        };
+
+        function renderCloudLessonsList() {
+            const list = document.getElementById('cloudLessonsList');
+            if (!list) return;
+            if (!cloudLessonsCache.length) {
+                list.innerHTML = `
+                    <div class="text-center py-8 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
+                        <i class="fas fa-cloud text-3xl mb-2 opacity-60"></i>
+                        <p class="text-sm font-bold">لا توجد دروس سحابية معروضة</p>
+                        <p class="text-[10px] mt-1">اضغط تحميل الدروس أو احفظ الدرس الحالي.</p>
+                    </div>`;
+                return;
+            }
+            list.innerHTML = cloudLessonsCache.map(l => `
+                <div class="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                    <div class="flex justify-between gap-2 items-start">
+                        <div class="min-w-0">
+                            <h4 class="font-bold text-sky-900 text-sm truncate">${escapeHtml(l.title || 'درس بدون اسم')}</h4>
+                            <p class="text-[10px] text-gray-500 mt-1" dir="ltr">${escapeHtml(l.video_url || '')}</p>
+                            <p class="text-[10px] text-gray-400 mt-1">${new Date(l.created_at).toLocaleString('ar-EG')} • ${Array.isArray(l.dialogue) ? l.dialogue.length : 0} عبارة</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-3 border-t border-gray-100 pt-2">
+                        <button onclick="loadCloudLesson('${l.id}')" class="flex-1 bg-sky-50 text-sky-700 rounded-lg py-2 text-xs font-bold"><i class="fas fa-play"></i> فتح</button>
+                        <button onclick="deleteCloudLesson('${l.id}')" class="bg-red-50 text-red-600 rounded-lg px-3 py-2 text-xs font-bold"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.loadCloudLesson = function(id) {
+            const lesson = cloudLessonsCache.find(l => l.id === id);
+            if (!lesson) return alert('لم يتم العثور على الدرس. اضغط تحميل الدروس مرة أخرى.');
+            dialogueData = Array.isArray(lesson.dialogue) ? lesson.dialogue : [];
+            savedPhrases = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases : [];
+            subtitleOffset = Number(lesson.sync || 0);
+            syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
+            loopStartIndex = -1;
+            loopEndIndex = -1;
+            document.getElementById('videoUrlInput').value = lesson.video_url || '';
+            renderDialogueCards();
+            updateSavedPhrasesBadge();
+            saveSavedPhrases();
+            saveState();
+            closeCloudLibraryModal();
+            if (lesson.video_url) document.getElementById('loadUrlBtn').click();
+        };
+
+        window.deleteCloudLesson = async function(id) {
+            if (!confirm('هل تريد حذف هذا الدرس من السحابة؟')) return;
+            const sb = getSupabaseClient();
+            if (!sb) return;
+            const { error } = await sb.from('lessons').delete().eq('id', id).eq('user_code', getCloudConfig().userCode);
+            if (error) return setCloudStatus('فشل الحذف: ' + error.message, 'error');
+            cloudLessonsCache = cloudLessonsCache.filter(l => l.id !== id);
+            renderCloudLessonsList();
+            setCloudStatus('تم حذف الدرس من السحابة.', 'ok');
+        };
+
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+        }
 
         // --- Library System ---
         window.saveCurrentToLibrary = function() {
@@ -1050,6 +1365,9 @@
 
                 card.innerHTML = `
                     <div class="flex justify-between items-start gap-2 mb-2">
+                        <button onclick="toggleSavedSubtitle(${index})" id="save-btn-${index}" class="${isSavedSubtitle(index) ? 'text-amber-500 bg-amber-100 border-amber-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="حفظ العبارة للمراجعة">
+                            <i class="${isSavedSubtitle(index) ? 'fas' : 'far'} fa-star text-sm"></i>
+                        </button>
                         <p class="english-text text-[15px] font-bold text-gray-800 leading-snug flex-grow">${processedEnText}</p>
                         <button onclick="speakText('${plainTextForAudio}')" class="text-emerald-600 bg-emerald-50 rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:bg-emerald-200">
                             <i class="fas fa-volume-up text-sm"></i>
@@ -1070,6 +1388,172 @@
             });
             updateRepeatUI();
         }
+
+        // --- Saved Phrases / Review List ---
+        function plainText(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html || '';
+            return tmp.textContent || tmp.innerText || '';
+        }
+
+        function escapeHtml(str) {
+            return String(str || '').replace(/[&<>"]/g, s => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[s]));
+        }
+
+        function makeSubtitleKey(item) {
+            return `${Math.round((item.startTime || 0) * 1000)}::${plainText(item.en).slice(0, 80)}`;
+        }
+
+        function saveSavedPhrases() {
+            localStorage.setItem('jungle_saved_phrases', JSON.stringify(savedPhrases));
+            updateSavedPhrasesBadge();
+        }
+
+        function updateSavedPhrasesBadge() {
+            const badge = document.getElementById('savedPhrasesBadge');
+            if (!badge) return;
+            if (savedPhrases.length > 0) {
+                badge.textContent = savedPhrases.length > 99 ? '99+' : savedPhrases.length;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function isSavedSubtitle(index) {
+            const item = dialogueData[index];
+            if (!item) return false;
+            const key = makeSubtitleKey(item);
+            return savedPhrases.some(p => p.key === key);
+        }
+
+        function updateSaveButton(index) {
+            const btn = document.getElementById(`save-btn-${index}`);
+            if (!btn) return;
+            const saved = isSavedSubtitle(index);
+            btn.className = `${saved ? 'text-amber-500 bg-amber-100 border-amber-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors`;
+            btn.innerHTML = `<i class="${saved ? 'fas' : 'far'} fa-star text-sm"></i>`;
+        }
+
+        window.toggleSavedSubtitle = function(index) {
+            const item = dialogueData[index];
+            if (!item) return;
+            const key = makeSubtitleKey(item);
+            const existingIndex = savedPhrases.findIndex(p => p.key === key);
+
+            if (existingIndex >= 0) {
+                savedPhrases.splice(existingIndex, 1);
+            } else {
+                savedPhrases.unshift({
+                    id: Date.now(),
+                    key,
+                    startTime: item.startTime,
+                    endTime: item.endTime,
+                    time: item.time || formatSecondsToTime(item.startTime),
+                    en: item.en,
+                    ar: item.ar || '',
+                    savedAt: new Date().toLocaleString('ar-EG')
+                });
+            }
+            saveSavedPhrases();
+            updateSaveButton(index);
+            renderSavedPhrasesList();
+        };
+
+        window.openSavedPhrasesModal = function() {
+            renderSavedPhrasesList();
+            const modal = document.getElementById('savedPhrasesModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('show', 'opacity-100', 'pointer-events-auto'), 10);
+        };
+
+        window.closeSavedPhrasesModal = function() {
+            const modal = document.getElementById('savedPhrasesModal');
+            modal.classList.remove('show', 'opacity-100', 'pointer-events-auto');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        };
+
+        window.renderSavedPhrasesList = function() {
+            const list = document.getElementById('savedPhrasesList');
+            if (!list) return;
+            const q = (document.getElementById('savedPhrasesSearch')?.value || '').trim().toLowerCase();
+            const filtered = savedPhrases.filter(p => {
+                const haystack = `${plainText(p.en)} ${plainText(p.ar)} ${p.time}`.toLowerCase();
+                return !q || haystack.includes(q);
+            });
+
+            if (savedPhrases.length === 0) {
+                list.innerHTML = `
+                    <div class="text-center py-10 text-gray-400">
+                        <i class="far fa-star text-4xl mb-3 opacity-60"></i>
+                        <p class="text-sm font-bold">لا توجد عبارات محفوظة بعد.</p>
+                        <p class="text-[10px] mt-1">اضغط على علامة النجمة بجوار أي subtitle لحفظه هنا.</p>
+                    </div>`;
+                return;
+            }
+
+            if (filtered.length === 0) {
+                list.innerHTML = `<div class="text-center py-8 text-gray-400 text-sm">لا توجد نتائج مطابقة للبحث.</div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.map(p => `
+                <div class="bg-white border border-gray-200 rounded-xl p-3 mb-3 shadow-sm">
+                    <div class="flex justify-between items-start gap-2 mb-2">
+                        <span class="bg-amber-50 text-amber-700 border border-amber-100 rounded-full px-2 py-1 text-[10px] font-bold" dir="ltr">${escapeHtml(p.time)}</span>
+                        <button onclick="deleteSavedPhrase(${p.id})" class="text-red-500 bg-red-50 w-8 h-8 rounded-full flex items-center justify-center active:bg-red-100">
+                            <i class="fas fa-trash text-xs"></i>
+                        </button>
+                    </div>
+                    <p class="english-text text-sm font-bold text-gray-800 leading-relaxed mb-2">${p.en || ''}</p>
+                    <p class="text-emerald-700 text-xs font-medium leading-relaxed mb-3">${p.ar || '<span class="text-gray-400">لم تتم إضافة الترجمة العربية بعد.</span>'}</p>
+                    <div class="flex gap-2 border-t border-gray-100 pt-2">
+                        <button onclick="jumpToSavedPhrase(${p.id})" class="flex-1 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                            <i class="fas fa-play"></i> تشغيل الموضع
+                        </button>
+                        <button onclick="speakText('${plainText(p.en).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" class="bg-blue-50 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
+                            <i class="fas fa-volume-up"></i> نطق
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        };
+
+        window.deleteSavedPhrase = function(id) {
+            const removed = savedPhrases.find(p => p.id === id);
+            savedPhrases = savedPhrases.filter(p => p.id !== id);
+            saveSavedPhrases();
+            renderSavedPhrasesList();
+            if (removed) {
+                const idx = dialogueData.findIndex(item => makeSubtitleKey(item) === removed.key);
+                if (idx !== -1) updateSaveButton(idx);
+            }
+        };
+
+        window.clearAllSavedPhrases = function() {
+            if (!savedPhrases.length) return;
+            if (!confirm('هل تريد مسح كل العبارات المحفوظة؟')) return;
+            savedPhrases = [];
+            saveSavedPhrases();
+            renderSavedPhrasesList();
+            renderDialogueCards();
+        };
+
+        window.jumpToSavedPhrase = function(id) {
+            const phrase = savedPhrases.find(p => p.id === id);
+            if (!phrase) return;
+            const idx = dialogueData.findIndex(item => makeSubtitleKey(item) === phrase.key || Math.abs((item.startTime || 0) - (phrase.startTime || 0)) < 0.05);
+            closeSavedPhrasesModal();
+            if (idx !== -1) {
+                setTimeout(() => {
+                    jumpToTime(dialogueData[idx].startTime);
+                    const card = document.getElementById(`card-${idx}`);
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 350);
+            } else {
+                alert('هذه العبارة محفوظة من درس آخر. افتح الدرس المناسب من المكتبة أولاً، أو استخدم النص للمراجعة فقط.');
+            }
+        };
 
         // --- Interaction Logic ---
         function getMediaTime() {
