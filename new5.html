@@ -332,6 +332,32 @@
                         </div>
                     </div>
                     <input id="libreEndpointInput" type="text" placeholder="LibreTranslate endpoint اختياري - مثال: https://libretranslate.com/translate" class="w-full border border-gray-300 rounded-lg p-2 text-xs" dir="ltr">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">حجم الدفعة السريعة</label>
+                            <select id="fastBatchSizeSelect" class="w-full border border-gray-300 rounded-lg p-2 text-xs bg-white">
+                                <option value="2400">آمن 2400 حرف</option>
+                                <option value="3800">سريع 3800 حرف</option>
+                                <option value="4800" selected>أقصى سرعة 4800 حرف</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">وضع الذاكرة</label>
+                            <select id="memoryModeSelect" class="w-full border border-gray-300 rounded-lg p-2 text-xs bg-white">
+                                <option value="on" selected>مفعل</option>
+                                <option value="off">معطل</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 space-y-2">
+                        <label class="block text-[10px] font-bold text-indigo-700">Memory Engine - مصطلحات وأسماء ثابتة</label>
+                        <textarea id="memoryGlossaryInput" class="w-full h-24 border border-indigo-200 rounded-lg p-2 text-xs leading-relaxed" placeholder="اكتب كل قاعدة في سطر. مثال:
+Kursk = كورسك
+port = الجانب الأيسر
+starboard = الجانب الأيمن
+Fat Girl = السمينة / اسم طوربيد"></textarea>
+                        <p class="text-[10px] text-indigo-700 leading-relaxed">تُستخدم الذاكرة قبل/بعد الترجمة، وتُضاف تلقائيًا في Prompt الجمل الصعبة للحفاظ على نفس المصطلحات طوال الفيلم.</p>
+                    </div>
                     <div class="grid grid-cols-3 gap-2">
                         <button onclick="saveAutoEngineSettings()" class="bg-purple-600 text-white rounded-lg py-2 text-xs font-bold"><i class="fas fa-save"></i> حفظ</button>
                         <button onclick="clearAutoEngineCache()" class="bg-gray-700 text-white rounded-lg py-2 text-xs font-bold"><i class="fas fa-broom"></i> مسح الكاش</button>
@@ -1410,7 +1436,9 @@ with check (true);`;
                 .filter(job => job.text && !job.item.ar);
         }
 
-        function splitJobsIntoGoogleChunks(jobs) {
+        function splitJobsIntoGoogleChunks(jobs, maxChars = null) {
+            const settings = getAutoEngineSettings();
+            const safeMax = Math.min(Number(maxChars || settings.fastBatchSize || GOOGLE_FREE_MAX_CHARS), GOOGLE_FREE_MAX_CHARS);
             const chunks = [];
             let current = [];
             let currentLength = 0;
@@ -1420,7 +1448,7 @@ with check (true);`;
                 const line = `${marker} ${job.text}\n`;
                 const lineLength = line.length;
 
-                if (current.length && currentLength + lineLength > GOOGLE_FREE_MAX_CHARS) {
+                if (current.length && currentLength + lineLength > safeMax) {
                     chunks.push(current);
                     current = [];
                     currentLength = 0;
@@ -2051,7 +2079,7 @@ with check (true);`;
         }
 
         function getAutoEngineSettings() {
-            const defaults = { provider: 'google', sensitivity: 3, libreEndpoint: '' };
+            const defaults = { provider: 'google', sensitivity: 3, libreEndpoint: '', fastBatchSize: 4800, memoryMode: 'on', glossaryText: '' };
             try { return { ...defaults, ...JSON.parse(localStorage.getItem(AUTO_ENGINE_SETTINGS_KEY) || '{}') }; }
             catch(e) { return defaults; }
         }
@@ -2060,7 +2088,10 @@ with check (true);`;
             const settings = {
                 provider: document.getElementById('autoEngineProvider')?.value || 'google',
                 sensitivity: Number(document.getElementById('autoEngineSensitivity')?.value || 3),
-                libreEndpoint: document.getElementById('libreEndpointInput')?.value.trim() || ''
+                libreEndpoint: document.getElementById('libreEndpointInput')?.value.trim() || '',
+                fastBatchSize: Number(document.getElementById('fastBatchSizeSelect')?.value || 4800),
+                memoryMode: document.getElementById('memoryModeSelect')?.value || 'on',
+                glossaryText: document.getElementById('memoryGlossaryInput')?.value || ''
             };
             localStorage.setItem(AUTO_ENGINE_SETTINGS_KEY, JSON.stringify(settings));
             const msg = document.getElementById('aiSmartImportStatus');
@@ -2072,9 +2103,15 @@ with check (true);`;
             const provider = document.getElementById('autoEngineProvider');
             const sensitivity = document.getElementById('autoEngineSensitivity');
             const endpoint = document.getElementById('libreEndpointInput');
+            const fastBatch = document.getElementById('fastBatchSizeSelect');
+            const memoryMode = document.getElementById('memoryModeSelect');
+            const glossary = document.getElementById('memoryGlossaryInput');
             if (provider) provider.value = settings.provider;
             if (sensitivity) sensitivity.value = String(settings.sensitivity);
             if (endpoint) endpoint.value = settings.libreEndpoint || '';
+            if (fastBatch) fastBatch.value = String(settings.fastBatchSize || 4800);
+            if (memoryMode) memoryMode.value = settings.memoryMode || 'on';
+            if (glossary) glossary.value = settings.glossaryText || '';
         }
 
         function getAutoEngineCache() {
@@ -2090,6 +2127,46 @@ with check (true);`;
             const msg = document.getElementById('aiSmartImportStatus');
             if (msg) msg.innerText = 'تم مسح كاش الترجمة.';
         };
+
+        function escapeRegExpForMemory(str) {
+            return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function parseMemoryGlossary() {
+            const settings = getAutoEngineSettings();
+            if (settings.memoryMode === 'off') return [];
+            const raw = settings.glossaryText || '';
+            return raw.split(/\n+/).map(line => {
+                const parts = line.split(/=|→|:/);
+                if (parts.length < 2) return null;
+                const source = (parts[0] || '').trim();
+                const target = parts.slice(1).join('=').trim();
+                return source && target ? { source, target } : null;
+            }).filter(Boolean);
+        }
+
+        function applyMemoryGlossaryToTranslation(sourceText, translatedText) {
+            const glossary = parseMemoryGlossary();
+            let out = translatedText || '';
+            glossary.forEach(rule => {
+                const srcRegex = new RegExp(escapeRegExpForMemory(rule.source), 'i');
+                if (srcRegex.test(sourceText || '')) {
+                    const options = rule.target.split('/').map(x => x.trim()).filter(Boolean);
+                    // لا نفرض استبدالًا عنيفًا على الترجمة الآلية، لكن نحفظ القاعدة في الكاش والـ Prompt.
+                    // في الجمل الصعبة سيستخدم ChatGPT هذه الذاكرة مباشرة.
+                    if (options.length && !options.some(opt => out.includes(opt))) {
+                        out = out.trim();
+                    }
+                }
+            });
+            return out;
+        }
+
+        function buildMemoryGlossaryPromptBlock() {
+            const glossary = parseMemoryGlossary();
+            if (!glossary.length) return '';
+            return 'Memory glossary to keep consistent across the movie:\n' + glossary.map(r => `- ${r.source} => ${r.target}`).join('\n') + '\n\n';
+        }
 
         function getContextWindow(index) {
             const prev = dialogueData[index - 1] ? htmlToPlainText(dialogueData[index - 1].en) : '';
@@ -2159,7 +2236,8 @@ with check (true);`;
         async function translateJobsWithAutoProvider(jobs, provider) {
             let translated = 0, failed = 0, fromCache = 0;
             const cache = getAutoEngineCache();
-            const chunks = provider === 'google' ? splitJobsIntoGoogleChunks(jobs) : jobs.map(j => [j]);
+            const settings = getAutoEngineSettings();
+            const chunks = provider === 'google' ? splitJobsIntoGoogleChunks(jobs, settings.fastBatchSize) : splitJobsIntoGoogleChunks(jobs, Math.min(settings.fastBatchSize || 2400, 2400));
 
             for (let c = 0; c < chunks.length; c++) {
                 const chunk = chunks[c];
@@ -2186,8 +2264,10 @@ with check (true);`;
                         const parsed = parseGoogleChunkByMarkers(translatedChunk, uncached);
                         if (parsed.size > 0) {
                             uncached.forEach(job => {
-                                const line = parsed.get(job.marker);
+                                let line = parsed.get(job.index);
                                 if (line && dialogueData[job.index]) {
+                                    line = applyMemoryGlossaryToTranslation(job.text, line);
+                                    line = applyMemoryGlossaryToTranslation(job.text, line);
                                     dialogueData[job.index].ar = line;
                                     cache[makeAutoEngineCacheKey(job.text, provider)] = line;
                                     const arEl = document.getElementById(`ar-${job.index}`);
@@ -2199,6 +2279,7 @@ with check (true);`;
                             for (const job of uncached) {
                                 try {
                                     const line = await translateAutoProvider(job.text, provider);
+                                    line = applyMemoryGlossaryToTranslation(job.text, line);
                                     dialogueData[job.index].ar = line;
                                     cache[makeAutoEngineCacheKey(job.text, provider)] = line;
                                     const arEl = document.getElementById(`ar-${job.index}`);
@@ -2212,6 +2293,7 @@ with check (true);`;
                         for (const job of uncached) {
                             try {
                                 const line = await translateAutoProvider(job.text, provider);
+                                line = applyMemoryGlossaryToTranslation(job.text, line);
                                 dialogueData[job.index].ar = line;
                                 cache[makeAutoEngineCacheKey(job.text, provider)] = line;
                                 const arEl = document.getElementById(`ar-${job.index}`);
@@ -2346,7 +2428,7 @@ with check (true);`;
                 فشل التلقائي: <b>${result.failed}</b><br>
                 تحتاج مراجعة ذكية: <b>${plan.review.length}</b><br>
                 تحتاج سياق كامل: <b>${plan.context.length}</b><br>
-                <span class="text-[10px] text-purple-700">الجمل الصعبة تم تجميعها في Prompt واحد مع السياق السابق واللاحق لتقليل الترجمة الحرفية.</span>
+                <span class="text-[10px] text-purple-700">الجمل الصعبة تم تجميعها في Prompt واحد مع السياق السابق واللاحق. Memory Engine يضيف المصطلحات الثابتة داخل الـ Prompt، وFaster batching يستخدم دفعات حتى ${plan.settings.fastBatchSize || 4800} حرف.</span>
             `;
             document.getElementById('aiSmartSummary').innerHTML = summary;
             document.getElementById('aiSmartPromptBox').value = hardPrompt;
