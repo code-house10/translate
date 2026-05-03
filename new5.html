@@ -2521,16 +2521,53 @@ with check (true);`;
             if (!keepStatus) document.getElementById('chatgptImportStatus').innerText = '';
         };
         function parseSrtBlocksForImport(content) {
-            const blocks = (content || '').trim().replace(/\r/g, '').split(/\n\s*\n/);
+            // Mobile-safe SRT parser:
+            // بعض الموبايلات تضيف رموز مخفية أو تغيّر شكل السهم --> أو تلغي السطر الفارغ بين البلوكات.
+            // لذلك لا نعتمد على split بالأسطر الفارغة فقط، بل نبحث عن كل رقم + توقيت + النص الذي يليه.
+            let text = String(content || '')
+                .replace(/\uFEFF/g, '')                 // BOM
+                .replace(/[\u200B-\u200F\u202A-\u202E]/g, '') // hidden RTL/LTR marks
+                .replace(/\r\n?/g, '\n')
+                .replace(/–|—|−|→|⇒|➜|⟶/g, '-')
+                .replace(/-{1,3}\s*>/g, '-->')
+                .replace(/＞/g, '>')
+                .trim();
+
             const result = [];
-            blocks.forEach(block => {
-                const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-                if (lines.length >= 3 && /^\d+$/.test(lines[0]) && lines[1].includes('-->')) {
-                    const index = parseInt(lines[0], 10) - 1;
-                    const text = lines.slice(2).join('<br>');
-                    if (index >= 0 && text) result.push({ index, text });
+
+            // النمط الرسمي: رقم ثم توقيت ثم نص، حتى قبل البلوك التالي أو نهاية النص.
+            const blockRegex = /(?:^|\n)\s*(\d{1,6})\s*\n\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*\n([\s\S]*?)(?=\n\s*\d{1,6}\s*\n\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->|$)/g;
+
+            let match;
+            while ((match = blockRegex.exec(text)) !== null) {
+                const index = parseInt(match[1], 10) - 1;
+                const subtitleText = (match[4] || '')
+                    .split('\n')
+                    .map(l => l.trim())
+                    .filter(l => l && !/^```/.test(l))
+                    .join('<br>')
+                    .trim();
+
+                if (index >= 0 && subtitleText) {
+                    result.push({ index, text: subtitleText });
                 }
-            });
+            }
+
+            // fallback قديم في حالة وجود SRT بسيط جدًا.
+            if (result.length === 0) {
+                const blocks = text.split(/\n\s*\n/);
+                blocks.forEach(block => {
+                    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+                    const timeLineIndex = lines.findIndex(l => /\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,.]\d{1,3}/.test(l));
+                    if (timeLineIndex > 0) {
+                        const num = lines.slice(0, timeLineIndex).reverse().find(l => /^\d+$/.test(l));
+                        const index = parseInt(num, 10) - 1;
+                        const subtitleText = lines.slice(timeLineIndex + 1).join('<br>').trim();
+                        if (index >= 0 && subtitleText) result.push({ index, text: subtitleText });
+                    }
+                });
+            }
+
             return result;
         }
         window.importChatGPTChunk = function() {
