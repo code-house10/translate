@@ -99,9 +99,9 @@
                     <!-- Video Section -->
                     <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
                         <h3 class="text-emerald-400 font-bold mb-2 text-sm"><i class="fas fa-video"></i> 1. اختر الفيديو</h3>
-                        <p class="text-[10px] text-gray-400 mb-2">يدعم يوتيوب، فيسبوك، روابط MP4، وروابط HLS/M3U8 المباشرة.</p>
+                        <p class="text-[10px] text-gray-400 mb-2">يدعم يوتيوب، فيسبوك، أو روابط مباشر.</p>
                         <div class="flex gap-2 mb-1">
-                            <input type="text" id="videoUrlInput" placeholder="رابط يوتيوب، فيسبوك، MP4 أو M3U8/HLS..." class="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg p-2 focus:border-emerald-500" dir="ltr">
+                            <input type="text" id="videoUrlInput" placeholder="رابط يوتيوب، فيسبوك، أو MP4..." class="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg p-2 focus:border-emerald-500" dir="ltr">
                             <button id="loadUrlBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 text-xs font-bold whitespace-nowrap">تشغيل</button>
                         </div>
                         <!-- Facebook Warning -->
@@ -157,7 +157,7 @@
             </div>
             
             <!-- Video Subtitle Display -->
-            <div id="videoSubtitleOverlay" class="absolute bottom-2 left-0 right-0 z-10 text-center pointer-events-none opacity-0 transition-opacity duration-200">
+            <div id="videoSubtitleOverlay" class="hidden absolute bottom-2 left-0 right-0 z-10 text-center pointer-events-none opacity-0 transition-opacity duration-200" aria-hidden="true">
                 <div class="subtitle-box pointer-events-auto">
                     <p id="overlayEn" class="text-white font-bold english-text drop-shadow-md"></p>
                     <p id="overlayAr" class="font-bold drop-shadow-md"></p>
@@ -165,10 +165,10 @@
             </div>
         </div>
 
-        <!-- Synced Subtitle Panel Under Video (single subtitle display - prevents duplicates) -->
+        <!-- Synced Translation/Subtitles Panel Below Video -->
         <div id="syncedSubtitlePanel" class="hidden bg-gray-950 border-t border-gray-800 px-3 py-2 text-center shadow-inner">
             <p id="syncedSubtitleEn" class="english-text text-white text-sm font-bold leading-relaxed min-h-[20px]">...</p>
-            <p id="syncedSubtitleAr" class="text-emerald-300 text-xs font-bold leading-relaxed min-h-[18px] mt-1">ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع الفيديو</p>
+            <p id="syncedSubtitleAr" class="text-emerald-300 text-xs font-bold leading-relaxed min-h-[18px] mt-1">ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع كروت الترجمة</p>
         </div>
 
         <!-- Mobile Smart Toolbar -->
@@ -649,8 +649,8 @@
                 if (fbPlayer && typeof fbPlayer.pause === 'function') fbPlayer.pause();
                 moviePlayer.pause();
                 destroyHlsPlayer();
-                syncedSubtitlePanel.classList.add('hidden');
-                clearSyncedSubtitlePanel();
+                hideSyncedSubtitle();
+                if (syncedSubtitlePanel) syncedSubtitlePanel.classList.add('hidden');
                 
                 loopStartIndex = -1;
                 loopEndIndex = -1;
@@ -1050,19 +1050,6 @@ with check (true);`;
             return (match && match[2].length === 11) ? match[2] : null;
         }
 
-        function activatePlayerMode() {
-            videoUploadOverlay.classList.add('hidden');
-            videoMainContainer.classList.remove('min-h-[75vh]', 'bg-gray-900');
-            videoMainContainer.classList.add('aspect-video', 'bg-black');
-            mobileToolbar.classList.remove('hidden');
-            syncedSubtitlePanel.classList.remove('hidden');
-            // Keep only ONE synced subtitle display: the panel under the video.
-            // The old overlay stays hidden to avoid duplicated subtitles.
-            videoSubtitleOverlay.classList.add('opacity-0');
-            mainHeader.classList.add('hidden');
-        }
-
-        // --- Single Synced Subtitle Panel + HLS Helpers ---
         function isHlsStreamUrl(url) {
             return /\.m3u8(?:[?#]|$)/i.test(url) || String(url || '').toLowerCase().includes('.m3u8?');
         }
@@ -1081,35 +1068,6 @@ with check (true);`;
             try { moviePlayer.load(); } catch (e) {}
         }
 
-        function clearSyncedSubtitlePanel() {
-            if (!syncedSubtitleEn || !syncedSubtitleAr) return;
-            syncedSubtitleEn.innerHTML = '...';
-            syncedSubtitleAr.textContent = 'ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع الفيديو';
-        }
-
-        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع الفيديو') {
-            if (!syncedSubtitlePanel) return;
-            syncedSubtitlePanel.classList.remove('hidden');
-            syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
-            syncedSubtitleAr.textContent = message;
-        }
-
-        function setSyncedSubtitle(item, activeIndex) {
-            if (!item || !syncedSubtitleEn || !syncedSubtitleAr) return;
-            // Show the synced subtitle only under the video. Do not also show the overlay.
-            videoSubtitleOverlay.classList.add('opacity-0');
-            syncedSubtitlePanel.classList.remove('hidden');
-            syncedSubtitleEn.innerHTML = processTextLR(item.en || '', activeIndex);
-            syncedSubtitleAr.innerHTML = item.ar || 'جاري الترجمة...';
-        }
-
-        function hideSyncedSubtitle() {
-            if (!syncedSubtitleEn || !syncedSubtitleAr) return;
-            syncedSubtitleEn.innerHTML = '';
-            syncedSubtitleAr.innerHTML = '';
-            videoSubtitleOverlay.classList.add('opacity-0');
-        }
-
         function loadHtml5VideoSource(finalUrl) {
             currentPlayerType = 'html5';
             iframeContainer.classList.add('hidden');
@@ -1119,14 +1077,9 @@ with check (true);`;
 
             if (isHlsStreamUrl(finalUrl)) {
                 if (moviePlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Safari / iOS supports HLS natively.
                     moviePlayer.src = finalUrl;
                 } else if (window.Hls && window.Hls.isSupported()) {
-                    hlsPlayer = new Hls({
-                        enableWorker: true,
-                        lowLatencyMode: false,
-                        backBufferLength: 90
-                    });
+                    hlsPlayer = new Hls({ enableWorker: true, lowLatencyMode: false, backBufferLength: 90 });
                     hlsPlayer.loadSource(finalUrl);
                     hlsPlayer.attachMedia(moviePlayer);
                     hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
@@ -1147,6 +1100,53 @@ with check (true);`;
 
             moviePlayer.play().catch(()=>{});
             applyPlaybackSpeed();
+        }
+
+        function activatePlayerMode() {
+            videoUploadOverlay.classList.add('hidden');
+            videoMainContainer.classList.remove('min-h-[75vh]', 'bg-gray-900');
+            videoMainContainer.classList.add('aspect-video', 'bg-black');
+            mobileToolbar.classList.remove('hidden');
+            if (syncedSubtitlePanel) syncedSubtitlePanel.classList.remove('hidden');
+            if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
+            showSyncedSubtitlePlaceholder();
+            mainHeader.classList.add('hidden');
+        }
+
+        // --- Below-Video Synced Subtitle Panel ---
+        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع كروت الترجمة') {
+            if (!syncedSubtitlePanel || !syncedSubtitleEn || !syncedSubtitleAr) return;
+            syncedSubtitlePanel.classList.remove('hidden');
+            syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
+            syncedSubtitleAr.textContent = message;
+            if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
+        }
+
+        function setSyncedSubtitle(item, activeIndex) {
+            if (!item || !syncedSubtitlePanel || !syncedSubtitleEn || !syncedSubtitleAr) return;
+            // One display only: subtitles appear below the video, never over the video.
+            if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
+            syncedSubtitlePanel.classList.remove('hidden');
+            syncedSubtitleEn.innerHTML = processTextLR(item.en || '', activeIndex);
+            syncedSubtitleAr.innerHTML = item.ar || 'جاري الترجمة...';
+        }
+
+        function hideSyncedSubtitle() {
+            if (!syncedSubtitleEn || !syncedSubtitleAr) return;
+            syncedSubtitleEn.innerHTML = '';
+            syncedSubtitleAr.innerHTML = '';
+            if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
+        }
+
+        function highlightActiveSubtitleCard(activeIndex) {
+            document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('border-emerald-500', 'bg-emerald-50/50'));
+            const activeCard = document.getElementById(`card-${activeIndex}`);
+            if (activeCard) {
+                activeCard.classList.add('border-emerald-500', 'bg-emerald-50/50');
+                if (window.scrollY > videoMainContainer.offsetHeight) {
+                    activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
         }
 
         // --- Advanced Facebook Video Extractor (Multi-Proxy) ---
@@ -1268,8 +1268,8 @@ with check (true);`;
             activatePlayerMode();
             
             // Cleanup existing players
-            moviePlayer.pause();
             destroyHlsPlayer();
+            moviePlayer.pause();
             moviePlayer.classList.add('hidden');
             if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
             if (fbPlayer && typeof fbPlayer.pause === 'function') fbPlayer.pause();
@@ -1317,19 +1317,17 @@ with check (true);`;
                 }
 
             } else if (isDirectVideo) {
-                // 3. Direct HTML5 Video File or HLS/M3U8 Stream (supports sync + speed)
+                // 3. Direct HTML5 Video File (Supports long CDNs and queries)
                 loadHtml5VideoSource(finalUrl);
             } else {
                 // 4. Generic Iframe (Vimeo, Dailymotion, Etc.)
                 // Note: Time Sync for subtitles doesn't work well via generic iframe without API.
                 currentPlayerType = 'generic_iframe';
+                showSyncedSubtitlePlaceholder('التزامن والسرعة يعملان أفضل مع رابط فيديو مباشر MP4/M3U8 أو يوتيوب.');
                 iframeContainer.classList.remove('hidden');
                 const gFrame = document.getElementById('genericIframe');
                 gFrame.classList.remove('hidden');
-                syncedSubtitlePanel.classList.add('hidden');
-                videoSubtitleOverlay.classList.add('opacity-0');
                 gFrame.src = finalUrl;
-                alert('تنبيه: هذا الرابط تم فتحه كـ iframe، لذلك التحكم في السرعة والمزامنة تعمل بشكل أفضل مع رابط MP4 أو M3U8 مباشر.');
             }
             saveState(); 
         });
@@ -1461,7 +1459,7 @@ with check (true);`;
                         
                         const arTextEl = document.getElementById(`ar-${i}`);
                         if(arTextEl) arTextEl.innerHTML = dialogueData[i].ar;
-                        if(currentActiveSubtitleIndex === i) { syncedSubtitleAr.innerHTML = dialogueData[i].ar; videoSubtitleOverlay.classList.add('opacity-0'); }
+                        if(currentActiveSubtitleIndex === i && syncedSubtitleAr) syncedSubtitleAr.innerHTML = dialogueData[i].ar;
                         
                         translatedCount++;
                         translationProgress.style.width = `${(translatedCount / dialogueData.length) * 100}%`;
@@ -1648,7 +1646,7 @@ with check (true);`;
                                 dialogueData[job.index].ar = translated;
                                 const arTextEl = document.getElementById(`ar-${job.index}`);
                                 if (arTextEl) arTextEl.innerHTML = translated;
-                                if (currentActiveSubtitleIndex === job.index) { syncedSubtitleAr.innerHTML = translated; videoSubtitleOverlay.classList.add('opacity-0'); }
+                                if (currentActiveSubtitleIndex === job.index && syncedSubtitleAr) syncedSubtitleAr.innerHTML = translated;
                                 translatedCount++;
                                 importedInChunk++;
                             }
@@ -2413,19 +2411,8 @@ with check (true);`;
                         hasPausedForCurrentSubtitle = false;
                         const item = dialogueData[activeIndex];
                         
-                        overlayEn.innerHTML = processTextLR(item.en, activeIndex);
-                        overlayAr.innerHTML = item.ar || "جاري الترجمة...";
-                        
-                        videoSubtitleOverlay.classList.remove('opacity-0');
-                        
-                        document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('border-emerald-500', 'bg-emerald-50/50'));
-                        const activeCard = document.getElementById(`card-${activeIndex}`);
-                        if (activeCard) {
-                            activeCard.classList.add('border-emerald-500', 'bg-emerald-50/50');
-                            if(window.scrollY > videoMainContainer.offsetHeight) {
-                                activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
-                        }
+                        setSyncedSubtitle(item, activeIndex);
+                        highlightActiveSubtitleCard(activeIndex);
                     }
                 } else {
                     if (currentActiveSubtitleIndex !== -1) {
