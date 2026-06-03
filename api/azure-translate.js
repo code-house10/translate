@@ -60,8 +60,10 @@ export default async function handler(req, res) {
     const raw = await azureResponse.text();
 
     if (!azureResponse.ok) {
+      const retryAfter = azureResponse.headers.get('retry-after') || '';
       return res.status(azureResponse.status).json({
-        error: `Azure Translator error ${azureResponse.status}: ${raw}`
+        error: `Azure Translator error ${azureResponse.status}: ${raw}`,
+        retryAfter: retryAfter ? Number(retryAfter) : null
       });
     }
 
