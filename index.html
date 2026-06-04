@@ -252,7 +252,7 @@
 
 
 
-        /* ===== Clean Mobile Hamburger + Center Karaoke Overlay ===== */
+        /* ===== Clean Mobile Hamburger + Bottom Karaoke Overlay ===== */
         .app-bottom-nav { display: none !important; }
         .app-menu-button {
             position: fixed; right: 16px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 190;
@@ -265,15 +265,20 @@
         .app-menu-button:active { transform: scale(.96); }
         @media (min-width: 768px) { .app-menu-button { right: 24px; bottom: 24px; } }
         #videoSubtitleOverlay {
-            top: 50% !important; bottom: auto !important; transform: translateY(-50%) !important;
-            left: 0 !important; right: 0 !important; padding: 0 10px; pointer-events: none;
+            top: auto !important;
+            bottom: 8px !important;
+            transform: none !important;
+            left: 0 !important;
+            right: 0 !important;
+            padding: 0 10px;
+            pointer-events: none;
         }
         #videoSubtitleOverlay .subtitle-box {
             width: min(94%, 720px) !important; max-width: 720px !important;
-            background: rgba(2, 6, 23, 0.88) !important;
-            border: 1px solid rgba(255,255,255,.18) !important;
-            box-shadow: 0 24px 80px rgba(0,0,0,.48); backdrop-filter: blur(10px);
-            padding: 14px 14px 10px !important; border-radius: 20px !important; pointer-events: auto;
+            background: rgba(2, 6, 23, 0.90) !important;
+            border: 1px solid rgba(255,255,255,.20) !important;
+            box-shadow: 0 18px 55px rgba(0,0,0,.48); backdrop-filter: blur(10px);
+            padding: 12px 14px 10px !important; border-radius: 18px !important; pointer-events: auto;
         }
         #overlayEn { text-align: center !important; direction: ltr !important; font-size: clamp(18px, 4.6vw, 28px) !important; line-height: 1.45 !important; letter-spacing: .01em; margin-bottom: 8px !important; }
         #overlayAr { text-align: center !important; font-size: clamp(13px, 3.5vw, 18px) !important; line-height: 1.55 !important; color: #a7f3d0 !important; }
@@ -888,6 +893,7 @@
 
             if (savedData && savedData !== "[]") {
                 dialogueData = JSON.parse(savedData);
+                normalizeDialogueDataAfterFiltering();
                 renderDialogueCards();
                 processBackgroundTranslation();
             }
@@ -1507,6 +1513,7 @@ using (bucket_id = 'jungle-lesson-files');`;
             const lesson = cloudLessonsCache.find(l => l.id === id);
             if (!lesson) return alert('لم يتم العثور على الدرس. اضغط تحميل الدروس مرة أخرى.');
             dialogueData = Array.isArray(lesson.dialogue) ? lesson.dialogue : [];
+            normalizeDialogueDataAfterFiltering();
             savedPhrases = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases : [];
             savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words : [];
             currentVideoFile = null;
@@ -1643,6 +1650,7 @@ using (bucket_id = 'jungle-lesson-files');`;
             if(!lesson) return;
 
             dialogueData = lesson.dialogue;
+            normalizeDialogueDataAfterFiltering();
             subtitleOffset = lesson.sync || 0;
             syncValueDisplay.innerText = subtitleOffset > 0 ? `+${subtitleOffset}s` : `${subtitleOffset}s`;
             
@@ -2026,6 +2034,26 @@ using (bucket_id = 'jungle-lesson-files');`;
             }
         });
 
+        function stripSubtitleHtmlForFilter(value) {
+            const temp = document.createElement('div');
+            temp.innerHTML = value || '';
+            return (temp.textContent || temp.innerText || '').replace(/\s+/g, ' ').trim();
+        }
+
+        function isSoundOrActionCue(value) {
+            const plain = stripSubtitleHtmlForFilter(value || '');
+            // Ignore subtitle cues such as [Music], [Applause], [door opens], etc.
+            return /\[[^\]]+\]/.test(plain);
+        }
+
+        function normalizeDialogueDataAfterFiltering() {
+            if (!Array.isArray(dialogueData)) dialogueData = [];
+            dialogueData = dialogueData.filter(item => {
+                const combined = `${item?.en || ''} ${item?.ar || ''}`;
+                return !isSoundOrActionCue(combined);
+            });
+        }
+
         // --- Dual Parser: SRT & HTML (Language Reactor Export Support) ---
         document.getElementById('subtitleFileInput').addEventListener('change', function(e) {
             const file = e.target.files[0];
@@ -2053,7 +2081,7 @@ using (bucket_id = 'jungle-lesson-files');`;
                             let enHTML = tds[1].innerHTML.trim();
                             let arHTML = tds.length >= 3 ? tds[2].innerHTML.trim() : "";
                             
-                            if (enHTML) {
+                            if (enHTML && !isSoundOrActionCue(`${enHTML} ${arHTML}`)) {
                                 dialogueData.push({
                                     startTime: parseTime(timeText),
                                     endTime: 0, 
@@ -2085,18 +2113,23 @@ using (bucket_id = 'jungle-lesson-files');`;
                                     if (arabicRegex.test(cleanLine.replace(/<[^>]+>/g, ''))) arLines.push(cleanLine);
                                     else enLines.push(cleanLine);
                                 });
-                                dialogueData.push({
-                                    startTime: parseTime(times[0]),
-                                    endTime: parseTime(times[1]),
-                                    en: enLines.join(' '),
-                                    ar: arLines.join(' '), 
-                                    time: times[0].split(',')[0].split('.')[0]
-                                });
+                                const enText = enLines.join(' ');
+                                const arText = arLines.join(' ');
+                                if (!isSoundOrActionCue(`${enText} ${arText}`)) {
+                                    dialogueData.push({
+                                        startTime: parseTime(times[0]),
+                                        endTime: parseTime(times[1]),
+                                        en: enText,
+                                        ar: arText,
+                                        time: times[0].split(',')[0].split('.')[0]
+                                    });
+                                }
                             }
                         }
                     });
                 }
 
+                normalizeDialogueDataAfterFiltering();
                 loopStartIndex = -1;
                 loopEndIndex = -1;
                 renderDialogueCards();
