@@ -1038,8 +1038,8 @@ using (bucket_id = 'jungle-lesson-files');`;
             mainHeader.classList.add('hidden');
         }
 
-        // --- Center Karaoke Subtitle Overlay ---
-        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف SRT من القائمة ليظهر النص متزامنًا في منتصف الفيديو') {
+        // --- Popup Karaoke Subtitle Overlay ---
+        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف SRT من القائمة ليظهر النص متزامنًا داخل النافذة المنبثقة') {
             if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
             if (syncedSubtitlePanel) syncedSubtitlePanel.classList.add('hidden');
             if (syncedSubtitleEn) syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
@@ -1112,6 +1112,18 @@ using (bucket_id = 'jungle-lesson-files');`;
                 }
             }
         }
+
+        window.jumpToActiveSubtitleCard = function(event) {
+            if (event) event.stopPropagation();
+            const activeIndex = currentActiveSubtitleIndex;
+            if (activeIndex === -1) return;
+            const activeCard = document.getElementById(`card-${activeIndex}`);
+            if (!activeCard) return;
+            document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('sync-jump-focus'));
+            activeCard.classList.add('border-emerald-500', 'bg-emerald-50/50', 'sync-jump-focus');
+            activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => activeCard.classList.remove('sync-jump-focus'), 1700);
+        };
 
         // --- Advanced Facebook Video Extractor (Multi-Proxy) ---
         async function extractFacebookVideo(url) {
@@ -2043,6 +2055,7 @@ using (bucket_id = 'jungle-lesson-files');`;
 
         window.translateSubtitleWithMyMemory = async function(index, event) {
             if (event && event.target && event.target.closest('.lr-word')) return;
+            if (event) event.stopPropagation();
             const item = dialogueData[index];
             if (!item) return;
 
@@ -2171,7 +2184,7 @@ using (bucket_id = 'jungle-lesson-files');`;
                     </div>
                     <p class="text-emerald-700 text-xs mb-3 font-medium" id="ar-${index}">${item.ar || '<span class="text-gray-400">اضغط على الجملة أو زر الترجمة لترجمتها عبر MyMemory.</span>'}</p>
                     <div class="flex gap-2 border-t border-gray-100 pt-2">
-                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1"><i class="fas fa-play text-[10px]"></i> العب</button>
+                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1"><i class="fas fa-play text-[10px]"></i> <span>العب</span><span dir="ltr" class="bg-white/70 border border-emerald-100 px-2 py-0.5 rounded-full text-[10px]">${item.time || formatSecondsToTime(item.startTime)}</span></button>
                         <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200"><i class="fas fa-redo text-[10px]"></i> كرر</button>
                         <button onclick="copySubtitleLine(${index}, event)" class="bg-slate-50 active:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold" title="نسخ السطر"><i class="fas fa-copy"></i></button>
                         <button onclick="translateSubtitleWithMyMemory(${index}, event)" class="bg-sky-50 active:bg-sky-100 text-sky-700 px-3 py-2 rounded-lg text-xs font-bold" title="ترجمة MyMemory"><i class="fas fa-language"></i></button>
