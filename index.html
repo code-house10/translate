@@ -265,30 +265,41 @@
         .app-menu-button:active { transform: scale(.96); }
         @media (min-width: 768px) { .app-menu-button { right: 24px; bottom: 24px; } }
         #videoSubtitleOverlay {
-            top: 50% !important;
+            position: relative !important;
+            top: auto !important;
             bottom: auto !important;
-            transform: translateY(-50%) !important;
-            left: 0 !important;
-            right: 0 !important;
-            padding: 0 10px;
+            transform: none !important;
+            left: auto !important;
+            right: auto !important;
+            width: 100% !important;
+            padding: 8px 10px 7px;
             pointer-events: none;
             z-index: 35;
+            background: linear-gradient(180deg, rgba(2,6,23,.98), rgba(15,23,42,.96));
+            border-top: 1px solid rgba(148,163,184,.18);
+            border-bottom: 1px solid rgba(15,23,42,.8);
         }
         #videoSubtitleOverlay .subtitle-box {
-            width: min(94%, 720px) !important; max-width: 720px !important;
-            background: rgba(2, 6, 23, 0.92) !important;
-            border: 1px solid rgba(255,255,255,.22) !important;
-            box-shadow: 0 24px 80px rgba(0,0,0,.52); backdrop-filter: blur(12px);
-            padding: 14px 14px 10px !important; border-radius: 20px !important; pointer-events: auto;
+            width: min(94%, 680px) !important; max-width: 680px !important;
+            margin: 0 auto !important;
+            background: rgba(15, 23, 42, 0.92) !important;
+            border: 1px solid rgba(255,255,255,.14) !important;
+            box-shadow: 0 12px 36px rgba(0,0,0,.34); backdrop-filter: blur(12px);
+            padding: 10px 12px 8px !important; border-radius: 16px !important; pointer-events: auto;
             cursor: pointer;
         }
-        #overlayEn { text-align: center !important; direction: ltr !important; font-size: clamp(18px, 4.6vw, 28px) !important; line-height: 1.45 !important; letter-spacing: .01em; margin-bottom: 8px !important; }
-        #overlayAr { text-align: center !important; font-size: clamp(13px, 3.5vw, 18px) !important; line-height: 1.55 !important; color: #a7f3d0 !important; }
+        #overlayEn { text-align: center !important; direction: ltr !important; font-size: clamp(15px, 3.8vw, 22px) !important; line-height: 1.35 !important; letter-spacing: .01em; margin-bottom: 5px !important; }
+        #overlayAr { text-align: center !important; font-size: clamp(11px, 3vw, 15px) !important; line-height: 1.45 !important; color: #a7f3d0 !important; }
         .subtitle-karaoke-word { cursor: pointer; display: inline-block; padding: 1px 4px; margin: 0 1px; border-radius: 7px; transition: background .12s ease, color .12s ease, transform .12s ease; }
         .subtitle-karaoke-word.active-word { background: #facc15; color: #111827 !important; box-shadow: 0 0 0 2px rgba(250,204,21,.25), 0 6px 18px rgba(250,204,21,.22); transform: translateY(-1px); }
-        .subtitle-action-row { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
-        .subtitle-action-row button { width: 34px; height: 30px; border-radius: 999px; background: rgba(255,255,255,.10); color: #e2e8f0; border: 1px solid rgba(255,255,255,.14); font-size: 12px; }
+        .subtitle-action-row { display: flex; justify-content: center; gap: 7px; margin-top: 7px; }
+        .subtitle-action-row button { width: 32px; height: 28px; border-radius: 999px; background: rgba(255,255,255,.10); color: #e2e8f0; border: 1px solid rgba(255,255,255,.14); font-size: 12px; }
         .subtitle-action-row button:active { transform: scale(.95); background: rgba(16,185,129,.32); }
+        @media (max-width: 480px) {
+            #videoSubtitleOverlay { padding: 7px 8px 6px; }
+            #videoSubtitleOverlay .subtitle-box { width: calc(100% - 12px) !important; padding: 9px 10px 7px !important; border-radius: 15px !important; }
+            #overlayEn { font-size: clamp(14px, 4vw, 20px) !important; }
+        }
         .subtitle-card.sync-jump-focus { border-color: #facc15 !important; background: #fffbeb !important; box-shadow: 0 16px 45px rgba(250, 204, 21, .22) !important; }
         #syncedSubtitlePanel { display: none !important; }
         #chatgptTranslatorModal { display: none !important; }
@@ -425,7 +436,9 @@
                 <iframe id="genericIframe" class="absolute inset-0 w-full h-full border-none bg-black hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
             </div>
             
-            <!-- Video Subtitle Display -->
+        </div>
+
+            <!-- Docked Subtitle Pop-up (outside video so it does not cover the scene) -->
             <div id="videoSubtitleOverlay" class="hidden absolute bottom-2 left-0 right-0 z-10 text-center pointer-events-none opacity-0 transition-opacity duration-200" aria-hidden="true">
                 <div class="subtitle-box pointer-events-auto" role="button" title="اضغط لعرض هذا السطر في القائمة" onclick="jumpToActiveSubtitleCard(event)">
                     <p id="overlayEn" class="text-white font-bold english-text drop-shadow-md"></p>
@@ -437,7 +450,7 @@
                     </div>
                 </div>
             </div>
-        </div>
+
 
         <!-- Synced Translation/Subtitles Panel Below Video -->
         <div id="syncedSubtitlePanel" class="hidden bg-gray-950 border-t border-gray-800 px-3 py-2 text-center shadow-inner">
