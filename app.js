@@ -214,7 +214,13 @@
       <div class="card-actions">
         <button class="play-btn" data-play="${i}">العب <span class="time-chip">${item.time}</span></button>
         <button class="repeat-btn" data-repeat="${i}">${repeatOn ? 'Stop loop' : 'Repeat'}</button>
-        <button class="line-btn" data-line-menu="${i}">⋯</button>
+        <button class="line-btn menu-trigger" data-line-menu="${i}" aria-label="More actions" title="More actions">⋯</button>
+      </div>
+      <div class="line-action-menu hidden" data-action-menu-for="${i}" onclick="event.stopPropagation()">
+        <button class="action-icon copy" data-line-action="copy" data-index="${i}" aria-label="Copy line" title="Copy line">📋</button>
+        <button class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line" title="Translate line">🌐</button>
+        <button class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
+        <button class="action-icon playphrase" data-line-action="playphrase" data-index="${i}" aria-label="Search in PlayPhrase" title="Search in PlayPhrase">▶</button>
       </div>
     </article>`;
   }
@@ -228,6 +234,23 @@
     if (idx < 0) return;
     renderList(idx);
     setTimeout(() => $('card-' + idx)?.scrollIntoView({behavior:'smooth', block:'center'}), 40);
+  }
+
+  function hideLineActionMenus() {
+    document.querySelectorAll('.line-action-menu:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    document.querySelectorAll('.menu-trigger.active').forEach(b => b.classList.remove('active'));
+  }
+
+  function toggleLineActionMenu(index, btn) {
+    const menu = document.querySelector(`[data-action-menu-for="${index}"]`);
+    if (!menu) return;
+    const willOpen = menu.classList.contains('hidden');
+    hideLineActionMenus();
+    if (willOpen) {
+      menu.classList.remove('hidden');
+      btn?.classList.add('active');
+      requestAnimationFrame(() => menu.scrollIntoView({behavior:'smooth', block:'nearest'}));
+    }
   }
 
   async function translateMyMemory(text) {
@@ -324,8 +347,19 @@
     const renderBtn = e.target.closest('[data-render-center]'); if (renderBtn) return renderList(Number(renderBtn.dataset.renderCenter));
     const play = e.target.closest('[data-play]'); if (play) { const i = Number(play.dataset.play); state.repeatStart = -1; state.repeatEnd = -1; state.activeIndex = i; state.lastIndex = i; renderList(i); updateDock(state.subtitles[i], -1); seekMedia(state.subtitles[i].startTime, true); return; }
     const rep = e.target.closest('[data-repeat]'); if (rep) { const i = Number(rep.dataset.repeat); if (state.repeatStart === i && state.repeatEnd === i) { state.repeatStart = state.repeatEnd = -1; toast('Repeat off'); } else { state.repeatStart = state.repeatEnd = i; seekMedia(state.subtitles[i].startTime, true); toast('Repeat on'); } renderList(i); return; }
-    const lineMenu = e.target.closest('[data-line-menu]'); if (lineMenu) { const i = Number(lineMenu.dataset.lineMenu); const action = prompt('Type: copy / translate / save / playphrase', 'translate'); if (action === 'copy') copyLine(i); if (action === 'translate') translateLine(i); if (action === 'save') saveLine(i); if (action === 'playphrase') openPlayPhrase(cleanLine(state.subtitles[i].en)); return; }
-    const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) openPlayPhrase(ppWord.dataset.ppWord);
+    const lineMenu = e.target.closest('[data-line-menu]'); if (lineMenu) { const i = Number(lineMenu.dataset.lineMenu); toggleLineActionMenu(i, lineMenu); return; }
+    const lineAction = e.target.closest('[data-line-action]'); if (lineAction) {
+      const i = Number(lineAction.dataset.index);
+      const action = lineAction.dataset.lineAction;
+      hideLineActionMenus();
+      if (action === 'copy') copyLine(i);
+      if (action === 'translate') translateLine(i);
+      if (action === 'save') saveLine(i);
+      if (action === 'playphrase') openPlayPhrase(cleanLine(state.subtitles[i]?.en));
+      return;
+    }
+    const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
+    if (!e.target.closest('.line-action-menu')) hideLineActionMenus();
     if (e.target.matches('[data-close-modal]')) closeModal(e.target.dataset.closeModal);
   });
 
