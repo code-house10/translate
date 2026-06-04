@@ -3113,7 +3113,7 @@ using (bucket_id = 'jungle-lesson-files');`;
         };
 
         function escapeRegExp(value) {
-            return String(value || '').replace(/[.*+?^${}()|[\]\]/g, '\$&');
+            return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
         function buildPlayPhraseSearchUrl(query) {
