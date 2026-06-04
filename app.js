@@ -2931,21 +2931,32 @@ using (bucket_id = 'jungle-lesson-files');`;
                         setSyncedSubtitle(item, activeIndex, currentTime);
                     }
                 } else {
-                    if (currentActiveSubtitleIndex !== -1) {
-                        let isPaused = false;
-                        if(currentPlayerType === 'html5') isPaused = moviePlayer.paused;
-                        if(currentPlayerType === 'youtube' && ytPlayer && typeof ytPlayer.getPlayerState === 'function') isPaused = (ytPlayer.getPlayerState() === 2);
-                        if(currentPlayerType === 'facebook') isPaused = isFbPaused;
-
-                        const currentItem = dialogueData[currentActiveSubtitleIndex];
-                        const userResumedPlaying = hasPausedForCurrentSubtitle && !isPaused && currentTime > currentItem.endTime + 0.1;
-
-                        if ((!isPaused && !hasPausedForCurrentSubtitle) || userResumedPlaying) {
-                            hideSyncedSubtitle();
-                            currentActiveSubtitleIndex = -1;
-                            hasPausedForCurrentSubtitle = false;
-                            document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('border-emerald-500', 'bg-emerald-50/50'));
+                    // Keep the last spoken subtitle visible during silent gaps.
+                    // SRT has no word-level timing, so when the line ends we freeze the highlight on the last word
+                    // until the next spoken subtitle starts.
+                    let previousIndex = -1;
+                    for (let i = dialogueData.length - 1; i >= 0; i--) {
+                        if (currentTime >= dialogueData[i].endTime) {
+                            previousIndex = i;
+                            break;
                         }
+                    }
+
+                    if (previousIndex !== -1) {
+                        const previousItem = dialogueData[previousIndex];
+                        if (currentActiveSubtitleIndex !== previousIndex) {
+                            currentActiveSubtitleIndex = previousIndex;
+                            lastKaraokeSubtitleIndex = -1;
+                            lastKaraokeWordIndex = -1;
+                            highlightActiveSubtitleCard(previousIndex);
+                        }
+                        hasPausedForCurrentSubtitle = true;
+                        setSyncedSubtitle(previousItem, previousIndex, previousItem.endTime);
+                    } else {
+                        hideSyncedSubtitle();
+                        currentActiveSubtitleIndex = -1;
+                        hasPausedForCurrentSubtitle = false;
+                        document.querySelectorAll('.subtitle-card').forEach(c => c.classList.remove('border-emerald-500', 'bg-emerald-50/50'));
                     }
                 }
             }
@@ -3133,6 +3144,14 @@ using (bucket_id = 'jungle-lesson-files');`;
         window.openPlayPhraseForCurrentWord = function() {
             const word = (currentDictWord || document.getElementById('dictWord')?.innerText || '').trim();
             openPlayPhraseSearch(word);
+        };
+
+        window.searchCurrentSubtitleInPlayPhrase = function(event) {
+            if (event) event.stopPropagation();
+            const idx = currentActiveSubtitleIndex;
+            if (idx === -1 || !dialogueData[idx]) return;
+            const text = htmlToPlainText(dialogueData[idx].en || '');
+            openPlayPhraseSearch(text);
         };
 
         window.showDynamicDict = async function(word, subtitleIndex) {
