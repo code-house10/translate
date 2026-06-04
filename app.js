@@ -23,7 +23,12 @@
     savedLines: readJSON('jm_saved_lines', []),
     currentDictWord: '',
     saveTimer: null,
-    syncTicker: null
+    syncTicker: null,
+    cloudClient: null,
+    cloudLessons: [],
+    reviewQueue: [],
+    reviewIndex: 0,
+    reviewRevealed: false
   };
 
   const el = {
@@ -36,7 +41,7 @@
   function readJSON(key, fallback) { try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; } }
   function writeJSON(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
   function debounceSave() { clearTimeout(state.saveTimer); state.saveTimer = setTimeout(saveState, 700); }
-  function saveState() { localStorage.setItem('jm_subtitles', JSON.stringify(state.subtitles)); localStorage.setItem('jm_sync', String(state.offset)); localStorage.setItem('jm_speed', String(state.speed)); writeJSON('jm_saved_words', state.savedWords); writeJSON('jm_saved_lines', state.savedLines); }
+  function saveState() { localStorage.setItem('jm_subtitles', JSON.stringify(state.subtitles)); localStorage.setItem('jm_sync', String(state.offset)); localStorage.setItem('jm_speed', String(state.speed)); localStorage.setItem('jm_video_url', state.videoUrl || ''); writeJSON('jm_saved_words', state.savedWords); writeJSON('jm_saved_lines', state.savedLines); }
   function toast(msg) { clearTimeout(window.__toastTimer); el.toast.textContent = msg; el.toast.classList.remove('hidden'); window.__toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 1800); }
   function setStatus(msg) { el.statusText.textContent = msg; if (el.menuStatus) el.menuStatus.textContent = msg; }
   function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -49,6 +54,32 @@
   function tokenize(text) { return cleanLine(text).match(/[A-Za-zÀ-ÿ0-9]+(?:[-'][A-Za-zÀ-ÿ0-9]+)*/g) || []; }
   function playphraseUrl(q) { return `https://www.playphrase.me/#/search?q=${encodeURIComponent(q).replace(/%20/g, '+')}`; }
   function openPlayPhrase(q) { if (!q) return; window.open(playphraseUrl(q), '_blank', 'noopener,noreferrer'); }
+
+  const CLOUD_CONFIG = {
+    url: 'https://gyybwibqkasakgwfpkxz.supabase.co',
+    key: 'sb_publishable_ZvjDNnkXMcXMrmVQDdWQwg_mSJPKW8L',
+    userCode: 'Romioo@1985'
+  };
+  const SUPABASE_CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+
+  function lineKey(item) {
+    return `${Math.round((item?.startTime || 0) * 1000)}-${cleanLine(item?.en || '').slice(0, 80).toLowerCase()}`;
+  }
+
+  function normalizeSavedLine(line) {
+    const now = new Date().toISOString();
+    return {
+      ...line,
+      key: line.key || lineKey(line),
+      ar: line.ar || '',
+      savedAt: line.savedAt || now,
+      dueAt: line.dueAt || now,
+      intervalDays: Number(line.intervalDays || 0),
+      ease: Number(line.ease || 2.5),
+      reviewCount: Number(line.reviewCount || 0),
+      lastReviewedAt: line.lastReviewedAt || ''
+    };
+  }
 
   function loadScript(src) { return new Promise((resolve, reject) => { const existing = [...document.scripts].find(s => s.src === src); if (existing) return resolve(); const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s); }); }
 
@@ -263,7 +294,7 @@
   async function translateLine(idx) {
     const item = state.subtitles[idx]; if (!item) return;
     setStatus('Translating line with MyMemory...');
-    try { item.ar = await translateMyMemory(cleanLine(item.en)); $('ar-' + idx) && ($('ar-' + idx).innerHTML = escapeHtml(item.ar)); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); debounceSave(); toast('Line translated'); }
+    try { item.ar = await translateMyMemory(cleanLine(item.en)); $('ar-' + idx) && ($('ar-' + idx).innerHTML = escapeHtml(item.ar)); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); debounceSave(); scheduleCloudLibrarySync(); toast('Line translated'); }
     catch { toast('MyMemory failed'); }
   }
 
@@ -292,8 +323,20 @@
   }
 
   function speak(text) { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang='en-US'; u.rate=.85; speechSynthesis.speak(u); } catch {} }
-  function saveWord(word, ar='') { const key = word.toLowerCase(); if (!state.savedWords.some(x => x.word.toLowerCase() === key)) state.savedWords.unshift({word, ar, savedAt:new Date().toISOString()}); writeJSON('jm_saved_words', state.savedWords); toast('Word saved'); }
-  function saveLine(idx) { const item = state.subtitles[idx]; if (!item) return; const key = `${Math.round(item.startTime*1000)}-${cleanLine(item.en).slice(0,40)}`; if (!state.savedLines.some(x => x.key === key)) state.savedLines.unshift({...item, key}); writeJSON('jm_saved_lines', state.savedLines); toast('Line saved'); }
+  function saveWord(word, ar='') { const key = word.toLowerCase(); if (!state.savedWords.some(x => x.word.toLowerCase() === key)) state.savedWords.unshift({word, ar, savedAt:new Date().toISOString()}); writeJSON('jm_saved_words', state.savedWords); toast('Word saved'); scheduleCloudLibrarySync(); }
+  async function saveLine(idx, translateIfMissing = true) {
+    const item = state.subtitles[idx]; if (!item) return;
+    const key = lineKey(item);
+    let ar = item.ar || '';
+    if (!ar && translateIfMissing) {
+      setStatus('Translating line before saving...');
+      try { ar = await translateMyMemory(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch { ar = ''; }
+    }
+    const existing = state.savedLines.find(x => x.key === key);
+    if (existing) { existing.ar = existing.ar || ar; toast('Line already saved'); }
+    else state.savedLines.unshift(normalizeSavedLine({...item, ar, key, savedAt:new Date().toISOString()}));
+    writeJSON('jm_saved_lines', state.savedLines); debounceSave(); toast('Line saved'); scheduleCloudLibrarySync();
+  }
   function copyLine(idx) { const item = state.subtitles[idx]; if (!item) return; navigator.clipboard?.writeText(cleanLine(item.en)); toast('Copied'); }
 
   async function openDict(word, idx = state.lastIndex) {
@@ -307,18 +350,183 @@
       const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
       const data = await res.json(); const examples = [];
       for (const m of data?.[0]?.meanings || []) for (const d of m.definitions || []) if (d.example) examples.push(d.example);
-      $('dictExamples').innerHTML = examples.slice(0,3).map(ex => `<div class="example" dir="ltr">${escapeHtml(ex)}</div>`).join('') || '<div class="example">No examples found.</div>';
+      const topExamples = [...new Set(examples)].slice(0,3);
+      if (!topExamples.length) throw new Error('No examples');
+      $('dictExamples').innerHTML = '<div class="example">Translating examples...</div>';
+      const rows = [];
+      for (const ex of topExamples) {
+        let ar = '';
+        try { ar = await translateMyMemory(ex); } catch {}
+        rows.push(`<div class="example"><p class="ex-en" dir="ltr">${escapeHtml(ex)}</p><p class="ex-ar" dir="rtl">${escapeHtml(ar || 'تعذر ترجمة المثال')}</p></div>`);
+      }
+      $('dictExamples').innerHTML = rows.join('');
     } catch { $('dictExamples').innerHTML = '<div class="example">No examples found.</div>'; }
   }
 
   function showSaved(type) {
     const body = $('savedBody'); $('savedTitle').textContent = type === 'words' ? 'Saved words' : 'Saved lines';
-    const arr = type === 'words' ? state.savedWords : state.savedLines;
+    const arr = type === 'words' ? state.savedWords : state.savedLines.map(normalizeSavedLine);
     body.innerHTML = arr.length ? arr.map((x, i) => type === 'words'
       ? `<div class="saved-item"><b dir="ltr">${escapeHtml(x.word)}</b><p>${escapeHtml(x.ar || '')}</p><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button></div>`
-      : `<div class="saved-item"><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><p>${escapeHtml(x.ar || '')}</p><button class="small-btn" data-saved-play="${i}">Play</button></div>`).join('')
+      : `<div class="saved-item"><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-saved-play="${i}">Play</button><button class="small-btn" data-pp-line="${i}">PlayPhrase</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`).join('')
       : '<p>No saved items yet.</p>';
     openModal('savedModal');
+  }
+
+  function formatDue(iso) {
+    const d = new Date(iso || Date.now()); const diff = d.getTime() - Date.now();
+    if (diff <= 0) return 'now';
+    const mins = Math.ceil(diff / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.ceil(mins/60);
+    if (hrs < 24) return `${hrs}h`;
+    return `${Math.ceil(hrs/24)}d`;
+  }
+
+  function getDueReviewLines() {
+    state.savedLines = state.savedLines.map(normalizeSavedLine);
+    const now = Date.now();
+    return state.savedLines.filter(x => new Date(x.dueAt || 0).getTime() <= now);
+  }
+
+  function showReviewCards() {
+    openMenu(false);
+    state.reviewQueue = getDueReviewLines();
+    state.reviewIndex = 0;
+    state.reviewRevealed = false;
+    $('savedTitle').textContent = 'Smart review cards';
+    renderReviewCard();
+    openModal('savedModal');
+  }
+
+  function renderReviewCard() {
+    const body = $('savedBody');
+    const due = state.reviewQueue;
+    if (!state.savedLines.length) { body.innerHTML = '<p>No saved lines yet. Save subtitle lines first.</p>'; return; }
+    if (!due.length) {
+      const next = state.savedLines.map(normalizeSavedLine).sort((a,b)=>new Date(a.dueAt)-new Date(b.dueAt))[0];
+      body.innerHTML = `<div class="review-empty"><b>All cards reviewed ✅</b><p>Next review: ${formatDue(next?.dueAt)}</p><button class="small-btn" data-show-saved-lines>Open saved lines</button></div>`;
+      return;
+    }
+    const card = due[state.reviewIndex] || due[0];
+    body.innerHTML = `<div class="review-card" data-review-key="${escapeHtml(card.key)}">
+      <div class="review-count">${state.reviewIndex + 1} / ${due.length} due</div>
+      <div class="review-front" dir="ltr">${escapeHtml(cleanLine(card.en))}</div>
+      <div class="review-back ${state.reviewRevealed ? '' : 'hidden'}" dir="rtl">${escapeHtml(card.ar || 'لا توجد ترجمة محفوظة')}</div>
+      <div class="review-actions">
+        <button class="small-btn" data-review-reveal>Show meaning</button>
+        <button class="small-btn again" data-review-grade="again">Again</button>
+        <button class="small-btn hard" data-review-grade="hard">Hard</button>
+        <button class="small-btn good" data-review-grade="good">Good</button>
+        <button class="small-btn easy" data-review-grade="easy">Easy</button>
+      </div>
+    </div>`;
+  }
+
+  function gradeReview(key, grade) {
+    const line = state.savedLines.find(x => x.key === key); if (!line) return;
+    const now = new Date();
+    line.reviewCount = Number(line.reviewCount || 0) + 1;
+    line.lastReviewedAt = now.toISOString();
+    let interval = Number(line.intervalDays || 0);
+    let ease = Number(line.ease || 2.5);
+    if (grade === 'again') { interval = 0; ease = Math.max(1.3, ease - .25); line.dueAt = new Date(now.getTime() + 10*60000).toISOString(); }
+    else {
+      if (grade === 'hard') { interval = interval ? Math.max(1, Math.round(interval * 1.2)) : 1; ease = Math.max(1.3, ease - .15); }
+      if (grade === 'good') { interval = interval ? Math.round(interval * ease) : 1; }
+      if (grade === 'easy') { interval = interval ? Math.round(interval * (ease + .8)) : 3; ease += .15; }
+      line.intervalDays = interval; line.ease = ease; line.dueAt = new Date(now.getTime() + interval*86400000).toISOString();
+    }
+    writeJSON('jm_saved_lines', state.savedLines); scheduleCloudLibrarySync();
+    state.reviewQueue = getDueReviewLines(); state.reviewIndex = 0; state.reviewRevealed = false; renderReviewCard();
+  }
+
+
+  async function getCloudClient() {
+    if (!CLOUD_CONFIG.url || !CLOUD_CONFIG.key || !CLOUD_CONFIG.userCode) throw new Error('Cloud config is missing.');
+    if (!window.supabase?.createClient) await loadScript(SUPABASE_CDN);
+    if (!state.cloudClient) state.cloudClient = window.supabase.createClient(CLOUD_CONFIG.url, CLOUD_CONFIG.key);
+    return state.cloudClient;
+  }
+
+  let cloudSyncTimer = null;
+  function scheduleCloudLibrarySync() {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = setTimeout(() => upsertCloudUserLibrary(true), 1200);
+  }
+
+  async function upsertCloudUserLibrary(silent = true) {
+    try {
+      const sb = await getCloudClient();
+      const payload = { user_code: CLOUD_CONFIG.userCode, saved_phrases: state.savedLines.map(normalizeSavedLine), saved_words: state.savedWords, updated_at: new Date().toISOString() };
+      const { error } = await sb.from('user_library').upsert(payload, { onConflict: 'user_code' });
+      if (error) throw error;
+      if (!silent) toast('Saved lines synced');
+    } catch (e) { if (!silent) toast('Cloud sync failed'); console.warn(e); }
+  }
+
+  async function loadCloudUserLibrary() {
+    try {
+      const sb = await getCloudClient();
+      const { data, error } = await sb.from('user_library').select('saved_phrases,saved_words').eq('user_code', CLOUD_CONFIG.userCode).maybeSingle();
+      if (error) throw error;
+      if (data) {
+        state.savedLines = Array.isArray(data.saved_phrases) ? data.saved_phrases.map(normalizeSavedLine) : state.savedLines;
+        state.savedWords = Array.isArray(data.saved_words) ? data.saved_words : state.savedWords;
+        writeJSON('jm_saved_lines', state.savedLines); writeJSON('jm_saved_words', state.savedWords);
+      }
+    } catch (e) { console.warn(e); }
+  }
+
+  async function saveLessonToCloud() {
+    openMenu(false);
+    if (!state.subtitles.length) return toast('Upload SRT first');
+    const title = prompt('Lesson name:', `Lesson ${new Date().toLocaleDateString()}`);
+    if (!title) return;
+    try {
+      const sb = await getCloudClient();
+      const payload = {
+        user_code: CLOUD_CONFIG.userCode,
+        title,
+        video_url: state.videoUrl || '',
+        video_type: state.playerType,
+        sync: state.offset,
+        dialogue: state.subtitles,
+        saved_phrases: state.savedLines.map(normalizeSavedLine),
+        saved_words: state.savedWords,
+        subtitle_text: '',
+        created_at: new Date().toISOString()
+      };
+      const { error } = await sb.from('lessons').insert(payload);
+      if (error) throw error;
+      await upsertCloudUserLibrary(true);
+      toast('Lesson saved to cloud');
+    } catch (e) { console.error(e); toast('Cloud save failed'); alert('Cloud save failed: ' + (e.message || e)); }
+  }
+
+  async function showCloudLibrary() {
+    openMenu(false);
+    $('savedTitle').textContent = 'Cloud library';
+    $('savedBody').innerHTML = '<p>Loading cloud lessons...</p>';
+    openModal('savedModal');
+    try {
+      const sb = await getCloudClient();
+      const { data, error } = await sb.from('lessons').select('id,title,video_url,video_type,sync,dialogue,saved_phrases,saved_words,created_at').eq('user_code', CLOUD_CONFIG.userCode).order('created_at', { ascending:false });
+      if (error) throw error;
+      state.cloudLessons = data || [];
+      $('savedBody').innerHTML = state.cloudLessons.length ? state.cloudLessons.map((l,i)=>`<div class="saved-item"><b>${escapeHtml(l.title || 'Untitled')}</b><p dir="ltr">${escapeHtml(l.video_url || 'No video link')}</p><small>${new Date(l.created_at).toLocaleString()}</small><div class="saved-actions"><button class="small-btn" data-cloud-load="${i}">Open</button></div></div>`).join('') : '<p>No cloud lessons yet.</p>';
+    } catch (e) { console.error(e); $('savedBody').innerHTML = '<p>Cloud load failed.</p>'; }
+  }
+
+  async function loadCloudLesson(i) {
+    const lesson = state.cloudLessons[Number(i)]; if (!lesson) return;
+    state.subtitles = Array.isArray(lesson.dialogue) ? lesson.dialogue.filter(x => !shouldIgnoreSubtitle(x.en)).map(x => ({...x, time: x.time || formatTime(x.startTime)})) : [];
+    state.savedLines = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases.map(normalizeSavedLine) : state.savedLines;
+    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words : state.savedWords;
+    state.offset = Number(lesson.sync || 0); state.activeIndex = -1; state.lastIndex = -1; state.listCenter = 0; state.videoUrl = lesson.video_url || '';
+    saveState(); updateControls(); renderList(0); closeModal('savedModal');
+    if (state.videoUrl) await loadUrl(state.videoUrl);
+    toast('Lesson restored');
   }
 
   function openMenu(show=true) { el.menuSheet.classList.toggle('hidden', !show); }
@@ -328,6 +536,7 @@
 
   async function loadUrl(url) {
     url = String(url || '').trim(); if (!url) return;
+    state.videoUrl = url; localStorage.setItem('jm_video_url', state.videoUrl);
     closeModal('urlModal');
     const yt = extractYtId(url);
     el.emptyVideo.classList.add('hidden');
@@ -359,6 +568,12 @@
       return;
     }
     const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
+    const ppLine = e.target.closest('[data-pp-line]'); if (ppLine) { const item = state.savedLines[Number(ppLine.dataset.ppLine)]; if (item) openPlayPhrase(cleanLine(item.en)); return; }
+    const savedPlay = e.target.closest('[data-saved-play]'); if (savedPlay) { const item = state.savedLines[Number(savedPlay.dataset.savedPlay)]; if (item) { const idx = state.subtitles.findIndex(s => lineKey(s) === item.key || Math.abs((s.startTime||0)-(item.startTime||0)) < .08); closeModal('savedModal'); if (idx >= 0) { renderList(idx); seekMedia(state.subtitles[idx].startTime, true); jumpToCard(idx); } else toast('Open the original lesson first'); } return; }
+    const cloudLoad = e.target.closest('[data-cloud-load]'); if (cloudLoad) { loadCloudLesson(cloudLoad.dataset.cloudLoad); return; }
+    if (e.target.closest('[data-review-reveal]')) { state.reviewRevealed = true; renderReviewCard(); return; }
+    const gradeBtn = e.target.closest('[data-review-grade]'); if (gradeBtn) { const card = e.target.closest('[data-review-key]'); if (card) gradeReview(card.dataset.reviewKey, gradeBtn.dataset.reviewGrade); return; }
+    if (e.target.closest('[data-show-saved-lines]')) { showSaved('lines'); return; }
     if (!e.target.closest('.line-action-menu')) hideLineActionMenus();
     if (e.target.matches('[data-close-modal]')) closeModal(e.target.dataset.closeModal);
   });
@@ -371,7 +586,10 @@
   $('menuAzure').onclick = translateAllAzure;
   $('menuSavedWords').onclick = () => { openMenu(false); showSaved('words'); };
   $('menuSavedLines').onclick = () => { openMenu(false); showSaved('lines'); };
-  $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; renderList(0); updateDock(null); openMenu(false); } };
+  $('menuReviewCards').onclick = showReviewCards;
+  $('menuSaveCloud').onclick = saveLessonToCloud;
+  $('menuCloudLibrary').onclick = showCloudLibrary;
+  $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); localStorage.removeItem('jm_video_url'); state.videoUrl=''; state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; renderList(0); updateDock(null); openMenu(false); } };
   $('speedBtn').onclick = () => { const opts=[.5,.75,1,1.25,1.5,2]; state.speed = opts[(opts.indexOf(state.speed)+1)%opts.length] || 1; if (state.playerType === 'html5') el.movie.playbackRate = state.speed; if (state.yt?.setPlaybackRate) state.yt.setPlaybackRate(state.speed); updateControls(); debounceSave(); };
   $('syncMinus').onclick = () => { state.offset -= .25; updateControls(); debounceSave(); };
   $('syncPlus').onclick = () => { state.offset += .25; updateControls(); debounceSave(); };
@@ -385,6 +603,8 @@
 
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
 
+  state.savedLines = state.savedLines.map(normalizeSavedLine);
+  loadCloudUserLibrary();
   const savedSubs = readJSON('jm_subtitles', []); if (savedSubs.length) { state.subtitles = savedSubs.filter(x => !shouldIgnoreSubtitle(x.en)); renderList(0); setStatus(`${state.subtitles.length} subtitles restored`); }
   updateControls(); syncLoop();
 })();
