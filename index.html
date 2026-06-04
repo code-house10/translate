@@ -723,12 +723,15 @@
                     </div>
                 </div>
             </div>
-            <div class="p-4 pb-8 bg-gray-50 grid grid-cols-2 gap-3 border-t border-gray-100">
-                <button onclick="speakText(document.getElementById('dictWord').innerText)" class="bg-emerald-100 text-emerald-700 active:bg-emerald-200 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors">
-                    <i class="fas fa-volume-up"></i> استمع للنطق
+            <div class="p-4 pb-8 bg-gray-50 grid grid-cols-3 gap-2 border-t border-gray-100">
+                <button onclick="speakText(document.getElementById('dictWord').innerText)" class="bg-emerald-100 text-emerald-700 active:bg-emerald-200 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition-colors">
+                    <i class="fas fa-volume-up"></i> نطق
                 </button>
-                <button onclick="toggleSavedCurrentWord()" id="dictSaveWordBtn" class="bg-amber-100 text-amber-700 active:bg-amber-200 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-colors">
-                    <i class="far fa-bookmark"></i> حفظ الكلمة
+                <button onclick="toggleSavedCurrentWord()" id="dictSaveWordBtn" class="bg-amber-100 text-amber-700 active:bg-amber-200 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition-colors">
+                    <i class="far fa-bookmark"></i> حفظ
+                </button>
+                <button onclick="openPlayPhraseForCurrentWord()" id="dictPlayPhraseBtn" class="bg-violet-100 text-violet-700 active:bg-violet-200 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition-colors">
+                    <i class="fas fa-film"></i> PlayPhrase
                 </button>
             </div>
         </div>
@@ -3848,6 +3851,29 @@ using (bucket_id = 'jungle-lesson-files');`;
             utterance.lang = 'en-US';
             utterance.rate = 0.85; 
             window.speechSynthesis.speak(utterance);
+        };
+
+        function escapeRegExp(value) {
+            return String(value || '').replace(/[.*+?^${}()|[\]\]/g, '\$&');
+        }
+
+        function buildPlayPhraseSearchUrl(query) {
+            const cleaned = String(query || '').trim();
+            const encoded = encodeURIComponent(cleaned).replace(/%20/g, '+');
+            return `https://www.playphrase.me/#/search?q=${encoded}`;
+        }
+
+        window.openPlayPhraseSearch = function(query) {
+            const cleaned = String(query || '').trim();
+            if (!cleaned) return;
+            const url = buildPlayPhraseSearchUrl(cleaned);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            if (typeof showAppToast === 'function') showAppToast('تم فتح PlayPhrase للكلمة: ' + cleaned);
+        };
+
+        window.openPlayPhraseForCurrentWord = function() {
+            const word = (currentDictWord || document.getElementById('dictWord')?.innerText || '').trim();
+            openPlayPhraseSearch(word);
         };
 
         window.showDynamicDict = async function(word, subtitleIndex) {

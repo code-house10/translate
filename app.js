@@ -3112,6 +3112,29 @@ using (bucket_id = 'jungle-lesson-files');`;
             window.speechSynthesis.speak(utterance);
         };
 
+        function escapeRegExp(value) {
+            return String(value || '').replace(/[.*+?^${}()|[\]\]/g, '\$&');
+        }
+
+        function buildPlayPhraseSearchUrl(query) {
+            const cleaned = String(query || '').trim();
+            const encoded = encodeURIComponent(cleaned).replace(/%20/g, '+');
+            return `https://www.playphrase.me/#/search?q=${encoded}`;
+        }
+
+        window.openPlayPhraseSearch = function(query) {
+            const cleaned = String(query || '').trim();
+            if (!cleaned) return;
+            const url = buildPlayPhraseSearchUrl(cleaned);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            if (typeof showAppToast === 'function') showAppToast('تم فتح PlayPhrase للكلمة: ' + cleaned);
+        };
+
+        window.openPlayPhraseForCurrentWord = function() {
+            const word = (currentDictWord || document.getElementById('dictWord')?.innerText || '').trim();
+            openPlayPhraseSearch(word);
+        };
+
         window.showDynamicDict = async function(word, subtitleIndex) {
             // Pause all playing medias before dictionary opens
             if (currentPlayerType === 'html5') {
