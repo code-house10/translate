@@ -250,6 +250,44 @@
         .quick-action-grid button i { font-size: 18px; }
         .app-hidden-guidance { display: none !important; }
 
+
+
+        /* ===== Clean Mobile Hamburger + Center Karaoke Overlay ===== */
+        .app-bottom-nav { display: none !important; }
+        .app-menu-button {
+            position: fixed; right: 16px; bottom: max(18px, env(safe-area-inset-bottom)); z-index: 190;
+            width: 56px; height: 56px; border-radius: 20px;
+            background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(4,120,87,.94));
+            color: #fff; border: 1px solid rgba(255,255,255,.16); box-shadow: 0 18px 55px rgba(2,6,23,.42);
+            display: flex; align-items: center; justify-content: center; backdrop-filter: blur(18px);
+        }
+        .app-menu-button i { font-size: 22px; }
+        .app-menu-button:active { transform: scale(.96); }
+        @media (min-width: 768px) { .app-menu-button { right: 24px; bottom: 24px; } }
+        #videoSubtitleOverlay {
+            top: 50% !important; bottom: auto !important; transform: translateY(-50%) !important;
+            left: 0 !important; right: 0 !important; padding: 0 10px; pointer-events: none;
+        }
+        #videoSubtitleOverlay .subtitle-box {
+            width: min(94%, 720px) !important; max-width: 720px !important;
+            background: rgba(2, 6, 23, 0.88) !important;
+            border: 1px solid rgba(255,255,255,.18) !important;
+            box-shadow: 0 24px 80px rgba(0,0,0,.48); backdrop-filter: blur(10px);
+            padding: 14px 14px 10px !important; border-radius: 20px !important; pointer-events: auto;
+        }
+        #overlayEn { text-align: center !important; direction: ltr !important; font-size: clamp(18px, 4.6vw, 28px) !important; line-height: 1.45 !important; letter-spacing: .01em; margin-bottom: 8px !important; }
+        #overlayAr { text-align: center !important; font-size: clamp(13px, 3.5vw, 18px) !important; line-height: 1.55 !important; color: #a7f3d0 !important; }
+        .subtitle-karaoke-word { cursor: pointer; display: inline-block; padding: 1px 4px; margin: 0 1px; border-radius: 7px; transition: background .12s ease, color .12s ease, transform .12s ease; }
+        .subtitle-karaoke-word.active-word { background: #facc15; color: #111827 !important; box-shadow: 0 0 0 2px rgba(250,204,21,.25), 0 6px 18px rgba(250,204,21,.22); transform: translateY(-1px); }
+        .subtitle-action-row { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+        .subtitle-action-row button { width: 34px; height: 30px; border-radius: 999px; background: rgba(255,255,255,.10); color: #e2e8f0; border: 1px solid rgba(255,255,255,.14); font-size: 12px; }
+        .subtitle-action-row button:active { transform: scale(.95); background: rgba(16,185,129,.32); }
+        #syncedSubtitlePanel { display: none !important; }
+        #chatgptTranslatorModal { display: none !important; }
+        .chatgpt-only { display: none !important; }
+        .app-toast { position: fixed; left: 50%; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 76px); transform: translateX(-50%); z-index: 220; background: rgba(15,23,42,.94); color: #fff; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; padding: 9px 14px; font-size: 12px; font-weight: 800; box-shadow: 0 18px 45px rgba(2,6,23,.35); opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+        .app-toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -320,9 +358,6 @@
                         <h3 class="text-blue-400 font-bold mb-2 text-sm"><i class="fas fa-closed-captioning"></i> 2. ملف الترجمة</h3>
                         <p class="text-[10px] text-gray-300 mb-2">يدعم ملفات SRT العادية وملفات HTML المحتوية على ألوان.</p>
                         <input type="file" id="subtitleFileInput" accept=".srt,.html,.htm,.txt" class="block w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white"/>
-                        <button onclick="openChatGPTTranslator()" class="mt-3 w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 rounded-xl text-xs shadow-lg flex justify-center items-center gap-2">
-                            <i class="fas fa-wand-magic-sparkles"></i> مساعد ترجمة ChatGPT الطبيعية بدون API
-                        </button>
 
                         <!-- Azure Translator Direct Integration -->
                         <div id="azureSetupBox" class="mt-3 bg-slate-900/60 border border-sky-700/60 rounded-xl p-3 space-y-2">
@@ -350,7 +385,6 @@
                             <i class="fab fa-google"></i> ترجمة Google مجانية تلقائية - دفعات حتى 5K
                         </button>
                         <p id="freeGoogleTranslateStatus" class="text-[10px] text-emerald-200 mt-2 leading-relaxed">بدون API: يترجم النصوص غير العربية من ملف SRT على دفعات أقل من 5000 حرف ثم يدمجها تلقائيًا في المحادثة.</p>
-                        <p class="text-[10px] text-amber-200 mt-2 leading-relaxed">يقسم ملف SRT إلى دفعات، يعطيك Prompt جاهز للنسخ إلى ChatGPT Plus، ثم تلصق الترجمة هنا لدمجها وتحميلها.</p>
                         <div class="grid grid-cols-2 gap-2 mt-3">
                             <button onclick="saveCurrentToCloud()" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-2 rounded-xl text-xs flex justify-center items-center gap-1">
                                 <i class="fas fa-cloud-upload-alt"></i> حفظ سحابي
@@ -388,6 +422,11 @@
                 <div class="subtitle-box pointer-events-auto">
                     <p id="overlayEn" class="text-white font-bold english-text drop-shadow-md"></p>
                     <p id="overlayAr" class="font-bold drop-shadow-md"></p>
+                    <div id="overlayActions" class="subtitle-action-row hidden">
+                        <button onclick="toggleCurrentSubtitleSaved(event)" title="Save line"><i class="fas fa-star"></i></button>
+                        <button onclick="copySubtitleLine(currentActiveSubtitleIndex, event)" title="Copy line"><i class="fas fa-copy"></i></button>
+                        <button onclick="translateSubtitleWithMyMemory(currentActiveSubtitleIndex, event)" title="Translate line"><i class="fas fa-language"></i></button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -450,30 +489,15 @@
             <div class="text-center bg-white rounded-xl p-8 text-gray-500 shadow-sm border border-gray-200 mt-4">
                 <i class="fas fa-list-alt text-3xl mb-2 text-gray-300"></i>
                 <h3 class="text-sm font-bold mb-1">قائمة المشاهد فارغة</h3>
-                <p class="text-[10px]">ارفع فيديو وملف ترجمة لتوليد الجمل التفاعلية هنا.</p>
+                <p class="text-[10px]">ارفع الفيديو أولًا، ثم ارفع ملف SRT من زر القائمة في أي وقت.</p>
             </div>
         </div>
     </main>
 
-
-    <!-- Professional App Bottom Navigation -->
-    <nav id="appBottomNav" class="app-bottom-nav" aria-label="قائمة التطبيق الرئيسية">
-        <button class="app-nav-btn active" onclick="window.scrollTo({top:0, behavior:'smooth'})">
-            <i class="fas fa-home"></i><span>الرئيسية</span>
-        </button>
-        <button class="app-nav-btn" onclick="openSavedPhrasesModal()">
-            <i class="fas fa-star"></i><span>محفوظاتي</span>
-        </button>
-        <button class="app-nav-btn" onclick="openFlashcardsModal()">
-            <i class="fas fa-layer-group"></i><span>الكروت</span>
-        </button>
-        <button class="app-nav-btn" onclick="openCloudLibraryModal()">
-            <i class="fas fa-cloud"></i><span>السحابة</span>
-        </button>
-        <button class="app-nav-btn" onclick="openQuickActionsModal()">
-            <i class="fas fa-ellipsis-h"></i><span>المزيد</span>
-        </button>
-    </nav>
+    <!-- Single Mobile Hamburger Menu -->
+    <button id="appMenuButton" class="app-menu-button" onclick="openQuickActionsModal()" aria-label="Open menu">
+        <i class="fas fa-bars"></i>
+    </button>
 
     <!-- Quick Actions Menu -->
     <div id="quickActionsModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-70 hidden flex items-end justify-center z-[169] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeQuickActionsModal()">
@@ -490,27 +514,14 @@
             </div>
             <div class="p-4 overflow-y-auto bg-gray-50 space-y-4">
                 <div class="quick-action-grid">
-                    <button onclick="closeQuickActionsModal(); openChatGPTTranslator()" class="bg-amber-50 text-amber-700 border border-amber-100">
-                        <i class="fas fa-wand-magic-sparkles"></i><span>مساعد ChatGPT</span>
-                    </button>
-                    <button onclick="closeQuickActionsModal(); startAzureConversationTranslation()" class="bg-sky-50 text-sky-700 border border-sky-100">
-                        <i class="fab fa-microsoft"></i><span>ترجمة Azure</span>
-                    </button>
-                    <button onclick="closeQuickActionsModal(); saveCurrentToCloud()" class="bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        <i class="fas fa-cloud-upload-alt"></i><span>حفظ سحابي</span>
-                    </button>
-                    <button onclick="closeQuickActionsModal(); openCloudLibraryModal()" class="bg-indigo-50 text-indigo-700 border border-indigo-100">
-                        <i class="fas fa-folder-open"></i><span>فتح المكتبة</span>
-                    </button>
-                    <button onclick="closeQuickActionsModal(); startFreeGoogleConversationTranslation()" class="bg-gray-100 text-gray-700 border border-gray-200">
-                        <i class="fab fa-google"></i><span>Google احتياطي</span>
-                    </button>
-                    <button onclick="closeQuickActionsModal(); resetApp()" class="bg-red-50 text-red-600 border border-red-100">
-                        <i class="fas fa-exchange-alt"></i><span>درس جديد</span>
-                    </button>
-                </div>
-                <div class="bg-white border border-gray-200 rounded-2xl p-3 text-xs text-gray-600 leading-relaxed">
-                    <b>تلميح سريع:</b> اضغط على الجملة لترجمتها عبر MyMemory، واضغط على أي كلمة لفتح القاموس.
+                    <button onclick="triggerSubtitleUpload(); closeQuickActionsModal();" class="bg-blue-50 text-blue-700 border border-blue-100"><i class="fas fa-closed-captioning"></i><span>رفع SRT</span></button>
+                    <button onclick="triggerVideoUpload(); closeQuickActionsModal();" class="bg-gray-100 text-gray-700 border border-gray-200"><i class="fas fa-video"></i><span>رفع فيديو</span></button>
+                    <button onclick="closeQuickActionsModal(); startAzureConversationTranslation()" class="bg-sky-50 text-sky-700 border border-sky-100"><i class="fab fa-microsoft"></i><span>ترجمة Azure</span></button>
+                    <button onclick="closeQuickActionsModal(); openSavedPhrasesModal()" class="bg-amber-50 text-amber-700 border border-amber-100"><i class="fas fa-star"></i><span>المحفوظات</span></button>
+                    <button onclick="closeQuickActionsModal(); openFlashcardsModal()" class="bg-indigo-50 text-indigo-700 border border-indigo-100"><i class="fas fa-layer-group"></i><span>الكروت</span></button>
+                    <button onclick="closeQuickActionsModal(); openCloudLibraryModal()" class="bg-emerald-50 text-emerald-700 border border-emerald-100"><i class="fas fa-cloud"></i><span>السحابة</span></button>
+                    <button onclick="closeQuickActionsModal(); saveCurrentToCloud()" class="bg-teal-50 text-teal-700 border border-teal-100"><i class="fas fa-cloud-upload-alt"></i><span>حفظ الدرس</span></button>
+                    <button onclick="closeQuickActionsModal(); resetApp()" class="bg-red-50 text-red-600 border border-red-100"><i class="fas fa-exchange-alt"></i><span>درس جديد</span></button>
                 </div>
             </div>
         </div>
@@ -660,74 +671,6 @@
         </div>
     </div>
 
-
-    <!-- ChatGPT Manual Subtitle Translator Modal -->
-    <div id="chatgptTranslatorModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-70 hidden flex items-end justify-center z-[120] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeChatGPTTranslator()">
-        <div class="bottom-sheet-content bg-white w-full max-h-[92vh] flex flex-col" dir="rtl">
-            <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1 flex-shrink-0"></div>
-            <div class="p-4 border-b border-gray-100 flex justify-between items-center flex-shrink-0">
-                <div>
-                    <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-wand-magic-sparkles text-amber-500"></i> مساعد ترجمة ChatGPT</h3>
-                    <p class="text-[10px] text-gray-500 mt-1">بدون API: انسخ الدفعة إلى ChatGPT ثم الصق النتيجة هنا.</p>
-                </div>
-                <button onclick="closeChatGPTTranslator()" class="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center active:bg-gray-200">
-                    <i class="fas fa-times text-sm"></i>
-                </button>
-            </div>
-
-            <div class="p-4 overflow-y-auto flex-grow bg-gray-50 space-y-4">
-                <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 leading-relaxed">
-                    <b>الطريقة:</b> اختر رقم الدفعة، اضغط نسخ Prompt، الصقه في ChatGPT، ثم انسخ الرد العربي كاملًا والصقه في خانة الاستيراد.
-                    يجب أن يرجع ChatGPT بنفس أرقام وتوقيت SRT حتى يدمجه الموقع تلقائيًا.
-                </div>
-
-                <div class="grid grid-cols-2 gap-2">
-                    <div class="bg-white border border-gray-200 rounded-xl p-3">
-                        <label class="block text-[10px] font-bold text-gray-500 mb-1">حجم الدفعة</label>
-                        <select id="chunkSizeSelect" onchange="refreshChatGPTChunk()" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
-                            <option value="20">20 سطر</option>
-                            <option value="35" selected>35 سطر</option>
-                            <option value="50">50 سطر</option>
-                            <option value="75">75 سطر</option>
-                        </select>
-                    </div>
-                    <div class="bg-white border border-gray-200 rounded-xl p-3">
-                        <label class="block text-[10px] font-bold text-gray-500 mb-1">الدفعة الحالية</label>
-                        <div class="flex gap-1">
-                            <button onclick="changeChatGPTChunk(-1)" class="bg-gray-100 text-gray-700 px-3 rounded-lg font-bold">-</button>
-                            <input id="chunkNumberInput" type="number" min="1" value="1" onchange="refreshChatGPTChunk()" class="w-full border border-gray-300 rounded-lg p-2 text-center text-sm" dir="ltr">
-                            <button onclick="changeChatGPTChunk(1)" class="bg-gray-100 text-gray-700 px-3 rounded-lg font-bold">+</button>
-                        </div>
-                        <p id="chunkCounterText" class="text-[10px] text-gray-500 mt-1 text-center">دفعة 1 من 1</p>
-                    </div>
-                </div>
-
-                <div class="bg-white border border-gray-200 rounded-xl p-3">
-                    <div class="flex justify-between items-center mb-2">
-                        <label class="text-xs font-bold text-gray-700">Prompt جاهز للنسخ إلى ChatGPT</label>
-                        <button onclick="copyChatGPTPrompt()" class="bg-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold"><i class="fas fa-copy"></i> نسخ</button>
-                    </div>
-                    <textarea id="chatgptPromptBox" class="w-full h-56 border border-gray-200 rounded-lg p-3 text-xs leading-relaxed english-text" dir="ltr" readonly></textarea>
-                </div>
-
-                <div class="bg-white border border-gray-200 rounded-xl p-3">
-                    <label class="block text-xs font-bold text-gray-700 mb-2">الصق ترجمة ChatGPT لهذه الدفعة هنا</label>
-                    <textarea id="chatgptResultBox" class="w-full h-44 border border-gray-200 rounded-lg p-3 text-xs leading-relaxed" placeholder="الصق هنا الرد الذي رجع من ChatGPT بصيغة SRT..."></textarea>
-                    <div class="grid grid-cols-2 gap-2 mt-2">
-                        <button onclick="importChatGPTChunk()" class="bg-emerald-600 text-white py-2 rounded-lg text-xs font-bold"><i class="fas fa-file-import"></i> دمج الدفعة</button>
-                        <button onclick="clearChatGPTResult()" class="bg-gray-200 text-gray-700 py-2 rounded-lg text-xs font-bold"><i class="fas fa-eraser"></i> مسح الخانة</button>
-                    </div>
-                    <p id="chatgptImportStatus" class="text-[10px] text-gray-500 mt-2"></p>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2 pb-4">
-                    <button onclick="downloadTranslatedSRT()" class="bg-blue-600 text-white py-3 rounded-xl text-xs font-bold"><i class="fas fa-download"></i> تحميل SRT عربي</button>
-                    <button onclick="copyFullArabicSRT()" class="bg-indigo-600 text-white py-3 rounded-xl text-xs font-bold"><i class="fas fa-copy"></i> نسخ SRT كامل</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Dictionary Modal -->
     <div id="dictModal" class="bottom-sheet fixed inset-0 bg-gray-900 bg-opacity-60 hidden flex items-end justify-center z-[100] transition-opacity opacity-0 pointer-events-none" onclick="if(event.target === this) closeDict()">
         <div class="bottom-sheet-content bg-white w-full" id="dictModalContent" dir="rtl">
@@ -846,6 +789,9 @@
         const LOOP_UNLOCK_AFTER_MS = 520;
 
         let currentActiveSubtitleIndex = -1;
+        let lastKaraokeSubtitleIndex = -1;
+        let lastKaraokeWordIndex = -1;
+        let appToastTimer = null;
         let hasPausedForCurrentSubtitle = false;
         let wasPlayingBeforeDict = false;
         let subtitleOffset = 0; 
@@ -1806,28 +1752,67 @@ using (bucket_id = 'jungle-lesson-files');`;
             mainHeader.classList.add('hidden');
         }
 
-        // --- Below-Video Synced Subtitle Panel ---
-        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع كروت الترجمة') {
-            if (!syncedSubtitlePanel || !syncedSubtitleEn || !syncedSubtitleAr) return;
-            syncedSubtitlePanel.classList.remove('hidden');
-            syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
-            syncedSubtitleAr.textContent = message;
+        // --- Center Karaoke Subtitle Overlay ---
+        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف SRT من القائمة ليظهر النص متزامنًا في منتصف الفيديو') {
             if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
+            if (syncedSubtitlePanel) syncedSubtitlePanel.classList.add('hidden');
+            if (syncedSubtitleEn) syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
+            if (syncedSubtitleAr) syncedSubtitleAr.textContent = message;
         }
 
-        function setSyncedSubtitle(item, activeIndex) {
-            if (!item || !syncedSubtitlePanel || !syncedSubtitleEn || !syncedSubtitleAr) return;
-            // One display only: subtitles appear below the video, never over the video.
-            if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
-            syncedSubtitlePanel.classList.remove('hidden');
-            syncedSubtitleEn.innerHTML = processTextLR(item.en || '', activeIndex);
-            syncedSubtitleAr.innerHTML = item.ar || 'جاري الترجمة...';
+        function getSubtitleWordTokens(text) {
+            const plain = (typeof htmlToPlainText === 'function') ? htmlToPlainText(text || '') : String(text || '').replace(/<[^>]+>/g, ' ');
+            return plain.match(/[a-zA-ZÀ-ÿ0-9]+(?:['’-][a-zA-ZÀ-ÿ0-9]+)?|[^\s]/g) || [];
+        }
+
+        function getKaraokeWordIndex(item, currentTime) {
+            const wordTokens = getSubtitleWordTokens(item.en || '').filter(t => /[a-zA-ZÀ-ÿ0-9]/.test(t));
+            if (!wordTokens.length) return -1;
+            const duration = Math.max(0.25, (item.endTime || item.startTime + 1) - (item.startTime || 0));
+            const progress = Math.min(0.999, Math.max(0, (currentTime - item.startTime) / duration));
+            return Math.min(wordTokens.length - 1, Math.floor(progress * wordTokens.length));
+        }
+
+        function renderKaraokeEnglish(item, subtitleIndex, currentTime) {
+            const tokens = getSubtitleWordTokens(item.en || '');
+            const activeWordIndex = getKaraokeWordIndex(item, currentTime);
+            let seenWord = -1;
+            return tokens.map(token => {
+                if (/^[a-zA-ZÀ-ÿ0-9]+(?:['’-][a-zA-ZÀ-ÿ0-9]+)?$/.test(token)) {
+                    seenWord++;
+                    const clean = token.replace(/[^a-zA-ZÀ-ÿ0-9'’-]/g, '');
+                    const safe = clean.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    const active = seenWord === activeWordIndex ? ' active-word' : '';
+                    return `<span class="subtitle-karaoke-word lr-word${active}" onclick="event.stopPropagation(); showDynamicDict('${safe}', ${subtitleIndex})">${escapeHtml(token)}</span>`;
+                }
+                return escapeHtml(token);
+            }).join(' ');
+        }
+
+        function setSyncedSubtitle(item, activeIndex, currentTime = null) {
+            if (!item || !videoSubtitleOverlay || !overlayEn || !overlayAr) return;
+            if (syncedSubtitlePanel) syncedSubtitlePanel.classList.add('hidden');
+            const now = typeof currentTime === 'number' ? currentTime : item.startTime;
+            const wordIndex = getKaraokeWordIndex(item, now);
+            if (lastKaraokeSubtitleIndex !== activeIndex || lastKaraokeWordIndex !== wordIndex) {
+                overlayEn.innerHTML = renderKaraokeEnglish(item, activeIndex, now);
+                lastKaraokeSubtitleIndex = activeIndex;
+                lastKaraokeWordIndex = wordIndex;
+            }
+            overlayAr.innerHTML = item.ar || '<span class="text-slate-300">اضغط زر الترجمة لترجمة السطر عبر MyMemory</span>';
+            const overlayActions = document.getElementById('overlayActions');
+            if (overlayActions) overlayActions.classList.remove('hidden');
+            videoSubtitleOverlay.classList.remove('hidden');
+            requestAnimationFrame(() => videoSubtitleOverlay.classList.add('opacity-100'));
         }
 
         function hideSyncedSubtitle() {
-            if (!syncedSubtitleEn || !syncedSubtitleAr) return;
-            syncedSubtitleEn.innerHTML = '';
-            syncedSubtitleAr.innerHTML = '';
+            if (overlayEn) overlayEn.innerHTML = '';
+            if (overlayAr) overlayAr.innerHTML = '';
+            const overlayActions = document.getElementById('overlayActions');
+            if (overlayActions) overlayActions.classList.add('hidden');
+            lastKaraokeSubtitleIndex = -1;
+            lastKaraokeWordIndex = -1;
             if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
         }
 
@@ -2626,6 +2611,31 @@ using (bucket_id = 'jungle-lesson-files');`;
             }
         };
 
+
+
+        // --- Clean App Utility Actions ---
+        function showAppToast(message) {
+            let toast = document.getElementById('appToast');
+            if (!toast) { toast = document.createElement('div'); toast.id = 'appToast'; toast.className = 'app-toast'; document.body.appendChild(toast); }
+            toast.textContent = message; toast.classList.add('show');
+            clearTimeout(appToastTimer); appToastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+        }
+        window.triggerSubtitleUpload = function() { const input = document.getElementById('subtitleFileInput'); if (input) input.click(); };
+        window.triggerVideoUpload = function() { const input = document.getElementById('videoFileInput'); if (input) input.click(); };
+        window.copySubtitleLine = async function(index, event) {
+            if (event) event.stopPropagation();
+            const item = dialogueData[index]; if (!item) return;
+            const text = htmlToPlainText(item.en || '');
+            try { await navigator.clipboard.writeText(text); showAppToast('تم نسخ السطر'); }
+            catch (e) { const temp = document.createElement('textarea'); temp.value = text; document.body.appendChild(temp); temp.select(); document.execCommand('copy'); temp.remove(); showAppToast('تم نسخ السطر'); }
+        };
+        window.toggleCurrentSubtitleSaved = function(event) {
+            if (event) event.stopPropagation();
+            if (currentActiveSubtitleIndex === -1) return;
+            toggleSavedSubtitle(currentActiveSubtitleIndex);
+            showAppToast(isSavedSubtitle(currentActiveSubtitleIndex) ? 'تم حفظ السطر' : 'تم إلغاء الحفظ');
+        };
+
         // --- MyMemory On-Demand Translator + Dictionary Examples ---
         const MYMEMORY_DIRECT_ENDPOINT = 'https://api.mymemory.translated.net/get';
         const MYMEMORY_SOURCE_LANG = 'en';
@@ -2832,44 +2842,29 @@ using (bucket_id = 'jungle-lesson-files');`;
                     <div class="text-center bg-white rounded-xl p-8 text-gray-500 shadow-sm border border-gray-200 mt-4">
                         <i class="fas fa-list-alt text-3xl mb-2 text-gray-300"></i>
                         <h3 class="text-sm font-bold mb-1">قائمة المشاهد فارغة</h3>
-                        <p class="text-[10px]">ارفع ملف SRT لتوليد الجمل التفاعلية هنا.</p>
+                        <p class="text-[10px]">ارفع الفيديو أولًا، ثم ارفع ملف SRT من زر القائمة في أي وقت.</p>
                     </div>`;
                 return;
             }
-
             dialogueData.forEach((item, index) => {
                 const card = document.createElement('div');
                 card.id = `card-${index}`;
                 card.className = "subtitle-card bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-1 transition-colors";
-                
                 const processedEnText = processTextLR(item.en, index);
-                
                 const plainTextForAudio = escapeJsString(plainText(item.en));
-
                 card.innerHTML = `
                     <div class="flex justify-between items-start gap-2 mb-2">
-                        <button onclick="toggleSavedSubtitle(${index})" id="save-btn-${index}" class="${isSavedSubtitle(index) ? 'text-amber-500 bg-amber-100 border-amber-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="حفظ العبارة للمراجعة">
-                            <i class="${isSavedSubtitle(index) ? 'fas' : 'far'} fa-star text-sm"></i>
-                        </button>
-                        <button onclick="toggleFlashcardSubtitle(${index})" id="flashcard-btn-${index}" class="${isFlashcardSubtitle(index) ? 'text-indigo-600 bg-indigo-100 border-indigo-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="إضافة إلى فلاش كارد للمذاكرة لاحقًا">
-                            <i class="fas fa-layer-group text-sm"></i>
-                        </button>
-                        <p id="en-${index}" onclick="translateSubtitleWithMyMemory(${index}, event)"  class="english-text text-[15px] font-bold text-gray-800 leading-snug flex-grow cursor-pointer rounded-lg p-1 active:bg-sky-50">${processedEnText}</p>
-                        <button onclick="speakText('${plainTextForAudio}')" class="text-emerald-600 bg-emerald-50 rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:bg-emerald-200">
-                            <i class="fas fa-volume-up text-sm"></i>
-                        </button>
+                        <button onclick="toggleSavedSubtitle(${index})" id="save-btn-${index}" class="${isSavedSubtitle(index) ? 'text-amber-500 bg-amber-100 border-amber-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="حفظ العبارة للمراجعة"><i class="${isSavedSubtitle(index) ? 'fas' : 'far'} fa-star text-sm"></i></button>
+                        <p id="en-${index}" onclick="translateSubtitleWithMyMemory(${index}, event)" class="english-text text-[15px] font-bold text-gray-800 leading-snug flex-grow cursor-pointer rounded-lg p-1 active:bg-sky-50">${processedEnText}</p>
+                        <button onclick="speakText('${plainTextForAudio}')" class="text-emerald-600 bg-emerald-50 rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:bg-emerald-200" title="نطق"><i class="fas fa-volume-up text-sm"></i></button>
                     </div>
-                    <p class="text-emerald-700 text-xs mb-3 font-medium" id="ar-${index}">${item.ar || '<span class="text-gray-400"><i class="fas fa-spinner fa-spin"></i> بانتظار الترجمة عبر مساعد ChatGPT...</span>'}</p>
-                    
+                    <p class="text-emerald-700 text-xs mb-3 font-medium" id="ar-${index}">${item.ar || '<span class="text-gray-400">اضغط على الجملة أو زر الترجمة لترجمتها عبر MyMemory.</span>'}</p>
                     <div class="flex gap-2 border-t border-gray-100 pt-2">
-                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                            <i class="fas fa-play text-[10px]"></i> العب (${item.time || formatSecondsToTime(item.startTime)})
-                        </button>
-                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200">
-                            <i class="fas fa-redo text-[10px]"></i> كرر
-                        </button>
-                    </div>
-                `;
+                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1"><i class="fas fa-play text-[10px]"></i> العب</button>
+                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200"><i class="fas fa-redo text-[10px]"></i> كرر</button>
+                        <button onclick="copySubtitleLine(${index}, event)" class="bg-slate-50 active:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold" title="نسخ السطر"><i class="fas fa-copy"></i></button>
+                        <button onclick="translateSubtitleWithMyMemory(${index}, event)" class="bg-sky-50 active:bg-sky-100 text-sky-700 px-3 py-2 rounded-lg text-xs font-bold" title="ترجمة MyMemory"><i class="fas fa-language"></i></button>
+                    </div>`;
                 container.appendChild(card);
             });
             updateRepeatUI();
@@ -3600,13 +3595,16 @@ using (bucket_id = 'jungle-lesson-files');`;
                 const activeIndex = dialogueData.findIndex(item => currentTime >= item.startTime && currentTime <= item.endTime);
                 
                 if (activeIndex !== -1) {
+                    const item = dialogueData[activeIndex];
                     if (currentActiveSubtitleIndex !== activeIndex) {
                         currentActiveSubtitleIndex = activeIndex;
                         hasPausedForCurrentSubtitle = false;
-                        const item = dialogueData[activeIndex];
-                        
-                        setSyncedSubtitle(item, activeIndex);
+                        lastKaraokeSubtitleIndex = -1;
+                        lastKaraokeWordIndex = -1;
+                        setSyncedSubtitle(item, activeIndex, currentTime);
                         highlightActiveSubtitleCard(activeIndex);
+                    } else {
+                        setSyncedSubtitle(item, activeIndex, currentTime);
                     }
                 } else {
                     if (currentActiveSubtitleIndex !== -1) {
@@ -3881,7 +3879,6 @@ using (bucket_id = 'jungle-lesson-files');`;
             }, 300);
         };
 
-
         // --- Professional App Menus ---
         window.openQuickActionsModal = function() {
             const modal = document.getElementById('quickActionsModal');
@@ -3895,6 +3892,8 @@ using (bucket_id = 'jungle-lesson-files');`;
             modal.classList.remove('show', 'opacity-100', 'pointer-events-auto');
             setTimeout(() => modal.classList.add('hidden'), 300);
         };
+        window.openChatGPTTranslator = function(){ showAppToast('تم حذف مساعد ChatGPT من هذه النسخة'); };
+        window.closeChatGPTTranslator = function(){};
 
         // Initialize state on load
         document.addEventListener('DOMContentLoaded', async function() {

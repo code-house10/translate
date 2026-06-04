@@ -72,6 +72,9 @@
         const LOOP_UNLOCK_AFTER_MS = 520;
 
         let currentActiveSubtitleIndex = -1;
+        let lastKaraokeSubtitleIndex = -1;
+        let lastKaraokeWordIndex = -1;
+        let appToastTimer = null;
         let hasPausedForCurrentSubtitle = false;
         let wasPlayingBeforeDict = false;
         let subtitleOffset = 0; 
@@ -1032,28 +1035,67 @@ using (bucket_id = 'jungle-lesson-files');`;
             mainHeader.classList.add('hidden');
         }
 
-        // --- Below-Video Synced Subtitle Panel ---
-        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف الترجمة ليظهر النص هنا متزامنًا مع كروت الترجمة') {
-            if (!syncedSubtitlePanel || !syncedSubtitleEn || !syncedSubtitleAr) return;
-            syncedSubtitlePanel.classList.remove('hidden');
-            syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
-            syncedSubtitleAr.textContent = message;
+        // --- Center Karaoke Subtitle Overlay ---
+        function showSyncedSubtitlePlaceholder(message = 'ارفع ملف SRT من القائمة ليظهر النص متزامنًا في منتصف الفيديو') {
             if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
+            if (syncedSubtitlePanel) syncedSubtitlePanel.classList.add('hidden');
+            if (syncedSubtitleEn) syncedSubtitleEn.innerHTML = dialogueData.length ? '...' : 'No subtitle loaded yet';
+            if (syncedSubtitleAr) syncedSubtitleAr.textContent = message;
         }
 
-        function setSyncedSubtitle(item, activeIndex) {
-            if (!item || !syncedSubtitlePanel || !syncedSubtitleEn || !syncedSubtitleAr) return;
-            // One display only: subtitles appear below the video, never over the video.
-            if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
-            syncedSubtitlePanel.classList.remove('hidden');
-            syncedSubtitleEn.innerHTML = processTextLR(item.en || '', activeIndex);
-            syncedSubtitleAr.innerHTML = item.ar || 'جاري الترجمة...';
+        function getSubtitleWordTokens(text) {
+            const plain = (typeof htmlToPlainText === 'function') ? htmlToPlainText(text || '') : String(text || '').replace(/<[^>]+>/g, ' ');
+            return plain.match(/[a-zA-ZÀ-ÿ0-9]+(?:['’-][a-zA-ZÀ-ÿ0-9]+)?|[^\s]/g) || [];
+        }
+
+        function getKaraokeWordIndex(item, currentTime) {
+            const wordTokens = getSubtitleWordTokens(item.en || '').filter(t => /[a-zA-ZÀ-ÿ0-9]/.test(t));
+            if (!wordTokens.length) return -1;
+            const duration = Math.max(0.25, (item.endTime || item.startTime + 1) - (item.startTime || 0));
+            const progress = Math.min(0.999, Math.max(0, (currentTime - item.startTime) / duration));
+            return Math.min(wordTokens.length - 1, Math.floor(progress * wordTokens.length));
+        }
+
+        function renderKaraokeEnglish(item, subtitleIndex, currentTime) {
+            const tokens = getSubtitleWordTokens(item.en || '');
+            const activeWordIndex = getKaraokeWordIndex(item, currentTime);
+            let seenWord = -1;
+            return tokens.map(token => {
+                if (/^[a-zA-ZÀ-ÿ0-9]+(?:['’-][a-zA-ZÀ-ÿ0-9]+)?$/.test(token)) {
+                    seenWord++;
+                    const clean = token.replace(/[^a-zA-ZÀ-ÿ0-9'’-]/g, '');
+                    const safe = clean.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    const active = seenWord === activeWordIndex ? ' active-word' : '';
+                    return `<span class="subtitle-karaoke-word lr-word${active}" onclick="event.stopPropagation(); showDynamicDict('${safe}', ${subtitleIndex})">${escapeHtml(token)}</span>`;
+                }
+                return escapeHtml(token);
+            }).join(' ');
+        }
+
+        function setSyncedSubtitle(item, activeIndex, currentTime = null) {
+            if (!item || !videoSubtitleOverlay || !overlayEn || !overlayAr) return;
+            if (syncedSubtitlePanel) syncedSubtitlePanel.classList.add('hidden');
+            const now = typeof currentTime === 'number' ? currentTime : item.startTime;
+            const wordIndex = getKaraokeWordIndex(item, now);
+            if (lastKaraokeSubtitleIndex !== activeIndex || lastKaraokeWordIndex !== wordIndex) {
+                overlayEn.innerHTML = renderKaraokeEnglish(item, activeIndex, now);
+                lastKaraokeSubtitleIndex = activeIndex;
+                lastKaraokeWordIndex = wordIndex;
+            }
+            overlayAr.innerHTML = item.ar || '<span class="text-slate-300">اضغط زر الترجمة لترجمة السطر عبر MyMemory</span>';
+            const overlayActions = document.getElementById('overlayActions');
+            if (overlayActions) overlayActions.classList.remove('hidden');
+            videoSubtitleOverlay.classList.remove('hidden');
+            requestAnimationFrame(() => videoSubtitleOverlay.classList.add('opacity-100'));
         }
 
         function hideSyncedSubtitle() {
-            if (!syncedSubtitleEn || !syncedSubtitleAr) return;
-            syncedSubtitleEn.innerHTML = '';
-            syncedSubtitleAr.innerHTML = '';
+            if (overlayEn) overlayEn.innerHTML = '';
+            if (overlayAr) overlayAr.innerHTML = '';
+            const overlayActions = document.getElementById('overlayActions');
+            if (overlayActions) overlayActions.classList.add('hidden');
+            lastKaraokeSubtitleIndex = -1;
+            lastKaraokeWordIndex = -1;
             if (videoSubtitleOverlay) videoSubtitleOverlay.classList.add('hidden', 'opacity-0');
         }
 
@@ -1852,6 +1894,31 @@ using (bucket_id = 'jungle-lesson-files');`;
             }
         };
 
+
+
+        // --- Clean App Utility Actions ---
+        function showAppToast(message) {
+            let toast = document.getElementById('appToast');
+            if (!toast) { toast = document.createElement('div'); toast.id = 'appToast'; toast.className = 'app-toast'; document.body.appendChild(toast); }
+            toast.textContent = message; toast.classList.add('show');
+            clearTimeout(appToastTimer); appToastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+        }
+        window.triggerSubtitleUpload = function() { const input = document.getElementById('subtitleFileInput'); if (input) input.click(); };
+        window.triggerVideoUpload = function() { const input = document.getElementById('videoFileInput'); if (input) input.click(); };
+        window.copySubtitleLine = async function(index, event) {
+            if (event) event.stopPropagation();
+            const item = dialogueData[index]; if (!item) return;
+            const text = htmlToPlainText(item.en || '');
+            try { await navigator.clipboard.writeText(text); showAppToast('تم نسخ السطر'); }
+            catch (e) { const temp = document.createElement('textarea'); temp.value = text; document.body.appendChild(temp); temp.select(); document.execCommand('copy'); temp.remove(); showAppToast('تم نسخ السطر'); }
+        };
+        window.toggleCurrentSubtitleSaved = function(event) {
+            if (event) event.stopPropagation();
+            if (currentActiveSubtitleIndex === -1) return;
+            toggleSavedSubtitle(currentActiveSubtitleIndex);
+            showAppToast(isSavedSubtitle(currentActiveSubtitleIndex) ? 'تم حفظ السطر' : 'تم إلغاء الحفظ');
+        };
+
         // --- MyMemory On-Demand Translator + Dictionary Examples ---
         const MYMEMORY_DIRECT_ENDPOINT = 'https://api.mymemory.translated.net/get';
         const MYMEMORY_SOURCE_LANG = 'en';
@@ -2058,44 +2125,29 @@ using (bucket_id = 'jungle-lesson-files');`;
                     <div class="text-center bg-white rounded-xl p-8 text-gray-500 shadow-sm border border-gray-200 mt-4">
                         <i class="fas fa-list-alt text-3xl mb-2 text-gray-300"></i>
                         <h3 class="text-sm font-bold mb-1">قائمة المشاهد فارغة</h3>
-                        <p class="text-[10px]">ارفع ملف SRT لتوليد الجمل التفاعلية هنا.</p>
+                        <p class="text-[10px]">ارفع الفيديو أولًا، ثم ارفع ملف SRT من زر القائمة في أي وقت.</p>
                     </div>`;
                 return;
             }
-
             dialogueData.forEach((item, index) => {
                 const card = document.createElement('div');
                 card.id = `card-${index}`;
                 card.className = "subtitle-card bg-white rounded-xl shadow-sm border border-gray-200 p-3 mb-1 transition-colors";
-                
                 const processedEnText = processTextLR(item.en, index);
-                
                 const plainTextForAudio = escapeJsString(plainText(item.en));
-
                 card.innerHTML = `
                     <div class="flex justify-between items-start gap-2 mb-2">
-                        <button onclick="toggleSavedSubtitle(${index})" id="save-btn-${index}" class="${isSavedSubtitle(index) ? 'text-amber-500 bg-amber-100 border-amber-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="حفظ العبارة للمراجعة">
-                            <i class="${isSavedSubtitle(index) ? 'fas' : 'far'} fa-star text-sm"></i>
-                        </button>
-                        <button onclick="toggleFlashcardSubtitle(${index})" id="flashcard-btn-${index}" class="${isFlashcardSubtitle(index) ? 'text-indigo-600 bg-indigo-100 border-indigo-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="إضافة إلى فلاش كارد للمذاكرة لاحقًا">
-                            <i class="fas fa-layer-group text-sm"></i>
-                        </button>
-                        <p id="en-${index}" onclick="translateSubtitleWithMyMemory(${index}, event)"  class="english-text text-[15px] font-bold text-gray-800 leading-snug flex-grow cursor-pointer rounded-lg p-1 active:bg-sky-50">${processedEnText}</p>
-                        <button onclick="speakText('${plainTextForAudio}')" class="text-emerald-600 bg-emerald-50 rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:bg-emerald-200">
-                            <i class="fas fa-volume-up text-sm"></i>
-                        </button>
+                        <button onclick="toggleSavedSubtitle(${index})" id="save-btn-${index}" class="${isSavedSubtitle(index) ? 'text-amber-500 bg-amber-100 border-amber-200' : 'text-gray-400 bg-gray-50 border-gray-200'} rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:scale-95 border transition-colors" title="حفظ العبارة للمراجعة"><i class="${isSavedSubtitle(index) ? 'fas' : 'far'} fa-star text-sm"></i></button>
+                        <p id="en-${index}" onclick="translateSubtitleWithMyMemory(${index}, event)" class="english-text text-[15px] font-bold text-gray-800 leading-snug flex-grow cursor-pointer rounded-lg p-1 active:bg-sky-50">${processedEnText}</p>
+                        <button onclick="speakText('${plainTextForAudio}')" class="text-emerald-600 bg-emerald-50 rounded-full w-8 h-8 flex-shrink-0 flex items-center justify-center active:bg-emerald-200" title="نطق"><i class="fas fa-volume-up text-sm"></i></button>
                     </div>
-                    <p class="text-emerald-700 text-xs mb-3 font-medium" id="ar-${index}">${item.ar || '<span class="text-gray-400"><i class="fas fa-spinner fa-spin"></i> بانتظار الترجمة عبر مساعد ChatGPT...</span>'}</p>
-                    
+                    <p class="text-emerald-700 text-xs mb-3 font-medium" id="ar-${index}">${item.ar || '<span class="text-gray-400">اضغط على الجملة أو زر الترجمة لترجمتها عبر MyMemory.</span>'}</p>
                     <div class="flex gap-2 border-t border-gray-100 pt-2">
-                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1">
-                            <i class="fas fa-play text-[10px]"></i> العب (${item.time || formatSecondsToTime(item.startTime)})
-                        </button>
-                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200">
-                            <i class="fas fa-redo text-[10px]"></i> كرر
-                        </button>
-                    </div>
-                `;
+                        <button onclick="jumpToTime(${item.startTime})" class="flex-1 bg-emerald-50 active:bg-emerald-100 text-emerald-700 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1"><i class="fas fa-play text-[10px]"></i> العب</button>
+                        <button onclick="toggleRepeat(${index})" id="repeat-btn-${index}" class="repeat-btn flex-1 bg-gray-50 active:bg-gray-200 text-gray-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors duration-200"><i class="fas fa-redo text-[10px]"></i> كرر</button>
+                        <button onclick="copySubtitleLine(${index}, event)" class="bg-slate-50 active:bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold" title="نسخ السطر"><i class="fas fa-copy"></i></button>
+                        <button onclick="translateSubtitleWithMyMemory(${index}, event)" class="bg-sky-50 active:bg-sky-100 text-sky-700 px-3 py-2 rounded-lg text-xs font-bold" title="ترجمة MyMemory"><i class="fas fa-language"></i></button>
+                    </div>`;
                 container.appendChild(card);
             });
             updateRepeatUI();
@@ -2826,13 +2878,16 @@ using (bucket_id = 'jungle-lesson-files');`;
                 const activeIndex = dialogueData.findIndex(item => currentTime >= item.startTime && currentTime <= item.endTime);
                 
                 if (activeIndex !== -1) {
+                    const item = dialogueData[activeIndex];
                     if (currentActiveSubtitleIndex !== activeIndex) {
                         currentActiveSubtitleIndex = activeIndex;
                         hasPausedForCurrentSubtitle = false;
-                        const item = dialogueData[activeIndex];
-                        
-                        setSyncedSubtitle(item, activeIndex);
+                        lastKaraokeSubtitleIndex = -1;
+                        lastKaraokeWordIndex = -1;
+                        setSyncedSubtitle(item, activeIndex, currentTime);
                         highlightActiveSubtitleCard(activeIndex);
+                    } else {
+                        setSyncedSubtitle(item, activeIndex, currentTime);
                     }
                 } else {
                     if (currentActiveSubtitleIndex !== -1) {
@@ -3107,7 +3162,6 @@ using (bucket_id = 'jungle-lesson-files');`;
             }, 300);
         };
 
-
         // --- Professional App Menus ---
         window.openQuickActionsModal = function() {
             const modal = document.getElementById('quickActionsModal');
@@ -3121,6 +3175,8 @@ using (bucket_id = 'jungle-lesson-files');`;
             modal.classList.remove('show', 'opacity-100', 'pointer-events-auto');
             setTimeout(() => modal.classList.add('hidden'), 300);
         };
+        window.openChatGPTTranslator = function(){ showAppToast('تم حذف مساعد ChatGPT من هذه النسخة'); };
+        window.closeChatGPTTranslator = function(){};
 
         // Initialize state on load
         document.addEventListener('DOMContentLoaded', async function() {
