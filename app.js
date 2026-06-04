@@ -81,6 +81,28 @@
     };
   }
 
+
+  function wordKey(word) {
+    return `word:${String(word || '').trim().toLowerCase()}`;
+  }
+
+  function normalizeSavedWord(word) {
+    const now = new Date().toISOString();
+    const cleanWord = String(word?.word || '').trim();
+    return {
+      ...word,
+      word: cleanWord,
+      key: word.key || wordKey(cleanWord),
+      ar: word.ar || '',
+      savedAt: word.savedAt || now,
+      dueAt: word.dueAt || now,
+      intervalDays: Number(word.intervalDays || 0),
+      ease: Number(word.ease || 2.5),
+      reviewCount: Number(word.reviewCount || 0),
+      lastReviewedAt: word.lastReviewedAt || ''
+    };
+  }
+
   function loadScript(src) { return new Promise((resolve, reject) => { const existing = [...document.scripts].find(s => s.src === src); if (existing) return resolve(); const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s); }); }
 
   function parseSrt(content) {
@@ -236,6 +258,15 @@
     highlightCard(state.lastIndex);
   }
 
+  function repeatLabel(i) {
+    if (state.repeatStart < 0 || state.repeatEnd < 0) return 'Repeat';
+    if (i < state.repeatStart || i > state.repeatEnd) return i < state.repeatStart ? 'Extend ↑' : 'Extend ↓';
+    if (state.repeatStart === state.repeatEnd) return 'Stop loop';
+    if (i === state.repeatStart) return 'Loop start';
+    if (i === state.repeatEnd) return 'Loop end';
+    return 'In loop';
+  }
+
   function cardHtml(i, item) {
     const active = i === state.lastIndex ? ' active' : '';
     const repeatOn = state.repeatStart >= 0 && i >= state.repeatStart && i <= state.repeatEnd;
@@ -244,7 +275,7 @@
       <div id="ar-${i}" class="card-ar">${item.ar || ''}</div>
       <div class="card-actions">
         <button class="play-btn" data-play="${i}">العب <span class="time-chip">${item.time}</span></button>
-        <button class="repeat-btn" data-repeat="${i}">${repeatOn ? 'Stop loop' : 'Repeat'}</button>
+        <button class="repeat-btn${repeatOn ? ' active' : ''}" data-repeat="${i}">${repeatLabel(i)}</button>
         <button class="line-btn menu-trigger" data-line-menu="${i}" aria-label="More actions" title="More actions">⋯</button>
       </div>
       <div class="line-action-menu hidden" data-action-menu-for="${i}" onclick="event.stopPropagation()">
@@ -323,7 +354,22 @@
   }
 
   function speak(text) { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang='en-US'; u.rate=.85; speechSynthesis.speak(u); } catch {} }
-  function saveWord(word, ar='') { const key = word.toLowerCase(); if (!state.savedWords.some(x => x.word.toLowerCase() === key)) state.savedWords.unshift({word, ar, savedAt:new Date().toISOString()}); writeJSON('jm_saved_words', state.savedWords); toast('Word saved'); scheduleCloudLibrarySync(); }
+  function saveWord(word, ar='') {
+    word = String(word || '').trim();
+    if (!word) return;
+    const key = word.toLowerCase();
+    const existing = state.savedWords.find(x => String(x.word || '').toLowerCase() === key);
+    if (existing) {
+      existing.ar = existing.ar || ar || '';
+      Object.assign(existing, normalizeSavedWord(existing));
+      toast('Word already saved');
+    } else {
+      state.savedWords.unshift(normalizeSavedWord({ word, ar, savedAt: new Date().toISOString() }));
+      toast('Word saved');
+    }
+    writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord));
+    scheduleCloudLibrarySync();
+  }
   async function saveLine(idx, translateIfMissing = true) {
     const item = state.subtitles[idx]; if (!item) return;
     const key = lineKey(item);
@@ -364,11 +410,15 @@
   }
 
   function showSaved(type) {
-    const body = $('savedBody'); $('savedTitle').textContent = type === 'words' ? 'Saved words' : 'Saved lines';
-    const arr = type === 'words' ? state.savedWords : state.savedLines.map(normalizeSavedLine);
-    body.innerHTML = arr.length ? arr.map((x, i) => type === 'words'
-      ? `<div class="saved-item"><b dir="ltr">${escapeHtml(x.word)}</b><p>${escapeHtml(x.ar || '')}</p><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button></div>`
-      : `<div class="saved-item"><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-saved-play="${i}">Play</button><button class="small-btn" data-pp-line="${i}">PlayPhrase</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`).join('')
+    const body = $('savedBody');
+    const isWords = type === 'words';
+    $('savedTitle').textContent = isWords ? 'Saved words' : 'Saved lines';
+    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
+    state.savedLines = state.savedLines.map(normalizeSavedLine);
+    const arr = isWords ? state.savedWords : state.savedLines;
+    body.innerHTML = arr.length ? arr.map((x, i) => isWords
+      ? `<div class="saved-item"><b dir="ltr">${escapeHtml(x.word)}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${i}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`
+      : `<div class="saved-item"><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-saved-play="${i}">Play</button><button class="small-btn" data-pp-line="${i}">PlayPhrase</button><button class="small-btn" data-review-one="line:${i}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`).join('')
       : '<p>No saved items yet.</p>';
     openModal('savedModal');
   }
@@ -383,15 +433,29 @@
     return `${Math.ceil(hrs/24)}d`;
   }
 
-  function getDueReviewLines() {
+  function getDueReviewCards() {
     state.savedLines = state.savedLines.map(normalizeSavedLine);
+    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
     const now = Date.now();
-    return state.savedLines.filter(x => new Date(x.dueAt || 0).getTime() <= now);
+    const lineCards = state.savedLines
+      .filter(x => new Date(x.dueAt || 0).getTime() <= now)
+      .map(x => ({ type: 'line', key: x.key, item: x }));
+    const wordCards = state.savedWords
+      .filter(x => new Date(x.dueAt || 0).getTime() <= now)
+      .map(x => ({ type: 'word', key: x.key || wordKey(x.word), item: x }));
+    return [...wordCards, ...lineCards].sort((a, b) => new Date(a.item.dueAt || 0) - new Date(b.item.dueAt || 0));
+  }
+
+  function allReviewItems() {
+    return [
+      ...state.savedWords.map(normalizeSavedWord).filter(x => x.word).map(x => ({ type:'word', key:x.key || wordKey(x.word), item:x })),
+      ...state.savedLines.map(normalizeSavedLine).map(x => ({ type:'line', key:x.key, item:x }))
+    ];
   }
 
   function showReviewCards() {
     openMenu(false);
-    state.reviewQueue = getDueReviewLines();
+    state.reviewQueue = getDueReviewCards();
     state.reviewIndex = 0;
     state.reviewRevealed = false;
     $('savedTitle').textContent = 'Smart review cards';
@@ -399,20 +463,37 @@
     openModal('savedModal');
   }
 
+  function showSingleReviewCard(type, index) {
+    const item = type === 'word' ? state.savedWords[Number(index)] : state.savedLines[Number(index)];
+    if (!item) return;
+    state.reviewQueue = [{ type, key: type === 'word' ? (item.key || wordKey(item.word)) : item.key, item: type === 'word' ? normalizeSavedWord(item) : normalizeSavedLine(item) }];
+    state.reviewIndex = 0;
+    state.reviewRevealed = false;
+    $('savedTitle').textContent = type === 'word' ? 'Review word' : 'Review line';
+    renderReviewCard();
+    openModal('savedModal');
+  }
+
   function renderReviewCard() {
     const body = $('savedBody');
     const due = state.reviewQueue;
-    if (!state.savedLines.length) { body.innerHTML = '<p>No saved lines yet. Save subtitle lines first.</p>'; return; }
+    if (!state.savedLines.length && !state.savedWords.length) { body.innerHTML = '<p>No saved words or lines yet.</p>'; return; }
     if (!due.length) {
-      const next = state.savedLines.map(normalizeSavedLine).sort((a,b)=>new Date(a.dueAt)-new Date(b.dueAt))[0];
+      const all = allReviewItems().sort((a,b)=>new Date(a.item.dueAt)-new Date(b.item.dueAt));
+      const next = all[0]?.item;
       body.innerHTML = `<div class="review-empty"><b>All cards reviewed ✅</b><p>Next review: ${formatDue(next?.dueAt)}</p><button class="small-btn" data-show-saved-lines>Open saved lines</button></div>`;
       return;
     }
     const card = due[state.reviewIndex] || due[0];
-    body.innerHTML = `<div class="review-card" data-review-key="${escapeHtml(card.key)}">
-      <div class="review-count">${state.reviewIndex + 1} / ${due.length} due</div>
-      <div class="review-front" dir="ltr">${escapeHtml(cleanLine(card.en))}</div>
-      <div class="review-back ${state.reviewRevealed ? '' : 'hidden'}" dir="rtl">${escapeHtml(card.ar || 'لا توجد ترجمة محفوظة')}</div>
+    const item = card.item;
+    const isWord = card.type === 'word';
+    const front = isWord ? item.word : cleanLine(item.en);
+    const back = item.ar || (isWord ? 'لا توجد ترجمة محفوظة لهذه الكلمة' : 'لا توجد ترجمة محفوظة');
+    const badge = isWord ? 'Word card' : 'Line card';
+    body.innerHTML = `<div class="review-card" data-review-key="${escapeHtml(card.key)}" data-review-type="${card.type}">
+      <div class="review-count">${state.reviewIndex + 1} / ${due.length} due • ${badge}</div>
+      <div class="review-front" dir="ltr">${escapeHtml(front)}</div>
+      <div class="review-back ${state.reviewRevealed ? '' : 'hidden'}" dir="rtl">${escapeHtml(back)}</div>
       <div class="review-actions">
         <button class="small-btn" data-review-reveal>Show meaning</button>
         <button class="small-btn again" data-review-grade="again">Again</button>
@@ -423,22 +504,31 @@
     </div>`;
   }
 
-  function gradeReview(key, grade) {
-    const line = state.savedLines.find(x => x.key === key); if (!line) return;
+  function applyReviewGrade(item, grade) {
     const now = new Date();
-    line.reviewCount = Number(line.reviewCount || 0) + 1;
-    line.lastReviewedAt = now.toISOString();
-    let interval = Number(line.intervalDays || 0);
-    let ease = Number(line.ease || 2.5);
-    if (grade === 'again') { interval = 0; ease = Math.max(1.3, ease - .25); line.dueAt = new Date(now.getTime() + 10*60000).toISOString(); }
+    item.reviewCount = Number(item.reviewCount || 0) + 1;
+    item.lastReviewedAt = now.toISOString();
+    let interval = Number(item.intervalDays || 0);
+    let ease = Number(item.ease || 2.5);
+    if (grade === 'again') { interval = 0; ease = Math.max(1.3, ease - .25); item.dueAt = new Date(now.getTime() + 10*60000).toISOString(); }
     else {
       if (grade === 'hard') { interval = interval ? Math.max(1, Math.round(interval * 1.2)) : 1; ease = Math.max(1.3, ease - .15); }
       if (grade === 'good') { interval = interval ? Math.round(interval * ease) : 1; }
       if (grade === 'easy') { interval = interval ? Math.round(interval * (ease + .8)) : 3; ease += .15; }
-      line.intervalDays = interval; line.ease = ease; line.dueAt = new Date(now.getTime() + interval*86400000).toISOString();
+      item.intervalDays = interval; item.ease = ease; item.dueAt = new Date(now.getTime() + interval*86400000).toISOString();
     }
-    writeJSON('jm_saved_lines', state.savedLines); scheduleCloudLibrarySync();
-    state.reviewQueue = getDueReviewLines(); state.reviewIndex = 0; state.reviewRevealed = false; renderReviewCard();
+  }
+
+  function gradeReview(key, grade, type = '') {
+    let item = null;
+    if (type === 'word' || String(key).startsWith('word:')) item = state.savedWords.find(x => (x.key || wordKey(x.word)) === key);
+    else item = state.savedLines.find(x => x.key === key);
+    if (!item) return;
+    applyReviewGrade(item, grade);
+    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
+    state.savedLines = state.savedLines.map(normalizeSavedLine);
+    writeJSON('jm_saved_words', state.savedWords); writeJSON('jm_saved_lines', state.savedLines); scheduleCloudLibrarySync();
+    state.reviewQueue = getDueReviewCards(); state.reviewIndex = 0; state.reviewRevealed = false; renderReviewCard();
   }
 
 
@@ -458,7 +548,7 @@
   async function upsertCloudUserLibrary(silent = true) {
     try {
       const sb = await getCloudClient();
-      const payload = { user_code: CLOUD_CONFIG.userCode, saved_phrases: state.savedLines.map(normalizeSavedLine), saved_words: state.savedWords, updated_at: new Date().toISOString() };
+      const payload = { user_code: CLOUD_CONFIG.userCode, saved_phrases: state.savedLines.map(normalizeSavedLine), saved_words: state.savedWords.map(normalizeSavedWord), updated_at: new Date().toISOString() };
       const { error } = await sb.from('user_library').upsert(payload, { onConflict: 'user_code' });
       if (error) throw error;
       if (!silent) toast('Saved lines synced');
@@ -472,7 +562,7 @@
       if (error) throw error;
       if (data) {
         state.savedLines = Array.isArray(data.saved_phrases) ? data.saved_phrases.map(normalizeSavedLine) : state.savedLines;
-        state.savedWords = Array.isArray(data.saved_words) ? data.saved_words : state.savedWords;
+        state.savedWords = Array.isArray(data.saved_words) ? data.saved_words.map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
         writeJSON('jm_saved_lines', state.savedLines); writeJSON('jm_saved_words', state.savedWords);
       }
     } catch (e) { console.warn(e); }
@@ -493,7 +583,7 @@
         sync: state.offset,
         dialogue: state.subtitles,
         saved_phrases: state.savedLines.map(normalizeSavedLine),
-        saved_words: state.savedWords,
+        saved_words: state.savedWords.map(normalizeSavedWord),
         subtitle_text: '',
         created_at: new Date().toISOString()
       };
@@ -522,7 +612,7 @@
     const lesson = state.cloudLessons[Number(i)]; if (!lesson) return;
     state.subtitles = Array.isArray(lesson.dialogue) ? lesson.dialogue.filter(x => !shouldIgnoreSubtitle(x.en)).map(x => ({...x, time: x.time || formatTime(x.startTime)})) : [];
     state.savedLines = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases.map(normalizeSavedLine) : state.savedLines;
-    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words : state.savedWords;
+    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words.map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
     state.offset = Number(lesson.sync || 0); state.activeIndex = -1; state.lastIndex = -1; state.listCenter = 0; state.videoUrl = lesson.video_url || '';
     saveState(); updateControls(); renderList(0); closeModal('savedModal');
     if (state.videoUrl) await loadUrl(state.videoUrl);
@@ -552,10 +642,30 @@
   async function attachHls(url) { if (el.movie.canPlayType('application/vnd.apple.mpegurl')) { el.movie.src = url; el.movie.play().catch(()=>{}); return; } await loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest'); if (window.Hls?.isSupported()) { state.hls = new Hls({enableWorker:true, backBufferLength:60}); state.hls.loadSource(url); state.hls.attachMedia(el.movie); el.movie.play().catch(()=>{}); } else toast('HLS not supported'); }
 
   document.addEventListener('click', e => {
-    const wordEl = e.target.closest('.word'); if (wordEl) { e.stopPropagation(); openDict(wordEl.dataset.word, Number(e.target.closest('[data-index]')?.dataset.index ?? state.lastIndex)); return; }
+    const wordEl = e.target.closest('.word'); if (wordEl) { e.stopPropagation(); pauseMedia(); openDict(wordEl.dataset.word, Number(e.target.closest('[data-index]')?.dataset.index ?? state.lastIndex)); return; }
     const renderBtn = e.target.closest('[data-render-center]'); if (renderBtn) return renderList(Number(renderBtn.dataset.renderCenter));
     const play = e.target.closest('[data-play]'); if (play) { const i = Number(play.dataset.play); state.repeatStart = -1; state.repeatEnd = -1; state.activeIndex = i; state.lastIndex = i; renderList(i); updateDock(state.subtitles[i], -1); seekMedia(state.subtitles[i].startTime, true); return; }
-    const rep = e.target.closest('[data-repeat]'); if (rep) { const i = Number(rep.dataset.repeat); if (state.repeatStart === i && state.repeatEnd === i) { state.repeatStart = state.repeatEnd = -1; toast('Repeat off'); } else { state.repeatStart = state.repeatEnd = i; seekMedia(state.subtitles[i].startTime, true); toast('Repeat on'); } renderList(i); return; }
+    const rep = e.target.closest('[data-repeat]'); if (rep) {
+      const i = Number(rep.dataset.repeat);
+      if (state.repeatStart < 0 || state.repeatEnd < 0) {
+        state.repeatStart = state.repeatEnd = i;
+        seekMedia(state.subtitles[i].startTime, true);
+        toast('Repeat starts here');
+      } else if (state.repeatStart === i && state.repeatEnd === i) {
+        state.repeatStart = state.repeatEnd = -1;
+        toast('Repeat off');
+      } else if (i >= state.repeatStart && i <= state.repeatEnd) {
+        state.repeatStart = state.repeatEnd = -1;
+        toast('Repeat off');
+      } else {
+        state.repeatStart = Math.min(state.repeatStart, i);
+        state.repeatEnd = Math.max(state.repeatEnd, i);
+        seekMedia(state.subtitles[state.repeatStart].startTime, true);
+        toast(`Looping ${state.repeatEnd - state.repeatStart + 1} subtitles`);
+      }
+      renderList(i);
+      return;
+    }
     const lineMenu = e.target.closest('[data-line-menu]'); if (lineMenu) { const i = Number(lineMenu.dataset.lineMenu); toggleLineActionMenu(i, lineMenu); return; }
     const lineAction = e.target.closest('[data-line-action]'); if (lineAction) {
       const i = Number(lineAction.dataset.index);
@@ -569,10 +679,11 @@
     }
     const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
     const ppLine = e.target.closest('[data-pp-line]'); if (ppLine) { const item = state.savedLines[Number(ppLine.dataset.ppLine)]; if (item) openPlayPhrase(cleanLine(item.en)); return; }
+    const reviewOne = e.target.closest('[data-review-one]'); if (reviewOne) { const [type, index] = reviewOne.dataset.reviewOne.split(':'); showSingleReviewCard(type, index); return; }
     const savedPlay = e.target.closest('[data-saved-play]'); if (savedPlay) { const item = state.savedLines[Number(savedPlay.dataset.savedPlay)]; if (item) { const idx = state.subtitles.findIndex(s => lineKey(s) === item.key || Math.abs((s.startTime||0)-(item.startTime||0)) < .08); closeModal('savedModal'); if (idx >= 0) { renderList(idx); seekMedia(state.subtitles[idx].startTime, true); jumpToCard(idx); } else toast('Open the original lesson first'); } return; }
     const cloudLoad = e.target.closest('[data-cloud-load]'); if (cloudLoad) { loadCloudLesson(cloudLoad.dataset.cloudLoad); return; }
     if (e.target.closest('[data-review-reveal]')) { state.reviewRevealed = true; renderReviewCard(); return; }
-    const gradeBtn = e.target.closest('[data-review-grade]'); if (gradeBtn) { const card = e.target.closest('[data-review-key]'); if (card) gradeReview(card.dataset.reviewKey, gradeBtn.dataset.reviewGrade); return; }
+    const gradeBtn = e.target.closest('[data-review-grade]'); if (gradeBtn) { const card = e.target.closest('[data-review-key]'); if (card) gradeReview(card.dataset.reviewKey, gradeBtn.dataset.reviewGrade, card.dataset.reviewType || ''); return; }
     if (e.target.closest('[data-show-saved-lines]')) { showSaved('lines'); return; }
     if (!e.target.closest('.line-action-menu')) hideLineActionMenus();
     if (e.target.matches('[data-close-modal]')) closeModal(e.target.dataset.closeModal);
@@ -603,6 +714,7 @@
 
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
 
+  state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
   state.savedLines = state.savedLines.map(normalizeSavedLine);
   loadCloudUserLibrary();
   const savedSubs = readJSON('jm_subtitles', []); if (savedSubs.length) { state.subtitles = savedSubs.filter(x => !shouldIgnoreSubtitle(x.en)); renderList(0); setStatus(`${state.subtitles.length} subtitles restored`); }
