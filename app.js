@@ -41,7 +41,17 @@
   function readJSON(key, fallback) { try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; } }
   function writeJSON(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
   function debounceSave() { clearTimeout(state.saveTimer); state.saveTimer = setTimeout(saveState, 700); }
-  function saveState() { localStorage.setItem('jm_subtitles', JSON.stringify(state.subtitles)); localStorage.setItem('jm_sync', String(state.offset)); localStorage.setItem('jm_speed', String(state.speed)); localStorage.setItem('jm_video_url', state.videoUrl || ''); writeJSON('jm_saved_words', state.savedWords); writeJSON('jm_saved_lines', state.savedLines); }
+  function saveState() {
+    localStorage.setItem('jm_subtitles', JSON.stringify(state.subtitles));
+    localStorage.setItem('jm_sync', String(state.offset));
+    localStorage.setItem('jm_speed', String(state.speed));
+    // Keep last lesson open on next visit. Browser blob: URLs cannot be restored after reload,
+    // so only permanent video links are saved automatically.
+    localStorage.setItem('jm_video_url', state.videoUrl && !String(state.videoUrl).startsWith('blob:') ? state.videoUrl : '');
+    localStorage.setItem('jm_last_lesson_saved_at', new Date().toISOString());
+    writeJSON('jm_saved_words', state.savedWords);
+    writeJSON('jm_saved_lines', state.savedLines);
+  }
   function toast(msg) { clearTimeout(window.__toastTimer); el.toast.textContent = msg; el.toast.classList.remove('hidden'); window.__toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 1800); }
   function setStatus(msg) { el.statusText.textContent = msg; if (el.menuStatus) el.menuStatus.textContent = msg; }
   function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -274,15 +284,14 @@
       <div class="card-en">${wordHtml(item.en, i === state.lastIndex ? state.lastWordIndex : -1)}</div>
       <div id="ar-${i}" class="card-ar">${item.ar || ''}</div>
       <div class="card-actions">
-        <button class="play-btn" data-play="${i}">العب <span class="time-chip">${item.time}</span></button>
-        <button class="repeat-btn${repeatOn ? ' active' : ''}" data-repeat="${i}">${repeatLabel(i)}</button>
-        <button class="line-btn menu-trigger" data-line-menu="${i}" aria-label="More actions" title="More actions">⋯</button>
+        <button type="button" class="play-btn" data-play="${i}">العب <span class="time-chip">${item.time}</span></button>
+        <button type="button" class="repeat-btn${repeatOn ? ' active' : ''}" data-repeat="${i}">${repeatLabel(i)}</button>
       </div>
-      <div class="line-action-menu hidden" data-action-menu-for="${i}" onclick="event.stopPropagation()">
-        <button class="action-icon copy" data-line-action="copy" data-index="${i}" aria-label="Copy line" title="Copy line">📋</button>
-        <button class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line" title="Translate line">🌐</button>
-        <button class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
-        <button class="action-icon playphrase" data-line-action="playphrase" data-index="${i}" aria-label="Search in PlayPhrase" title="Search in PlayPhrase">▶</button>
+      <div class="line-action-strip" aria-label="Line actions">
+        <button type="button" class="action-icon copy" data-line-action="copy" data-index="${i}" aria-label="Copy line" title="Copy line">📋</button>
+        <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line" title="Translate line">🌐</button>
+        <button type="button" class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
+        <button type="button" class="action-icon playphrase" data-line-action="playphrase" data-index="${i}" aria-label="Search in PlayPhrase" title="Search in PlayPhrase">▶</button>
       </div>
     </article>`;
   }
@@ -383,7 +392,21 @@
     else state.savedLines.unshift(normalizeSavedLine({...item, ar, key, savedAt:new Date().toISOString()}));
     writeJSON('jm_saved_lines', state.savedLines); debounceSave(); toast('Line saved'); scheduleCloudLibrarySync();
   }
-  function copyLine(idx) { const item = state.subtitles[idx]; if (!item) return; navigator.clipboard?.writeText(cleanLine(item.en)); toast('Copied'); }
+  async function copyLine(idx) {
+    const item = state.subtitles[idx]; if (!item) return;
+    const text = cleanLine(item.en);
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else throw new Error('Clipboard API unavailable');
+      toast('Copied');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast('Copied'); } catch { toast('Copy failed'); }
+      ta.remove();
+    }
+  }
 
   async function openDict(word, idx = state.lastIndex) {
     word = String(word || '').replace(/[^A-Za-zÀ-ÿ0-9'-]/g, ''); if (!word) return;
@@ -568,6 +591,10 @@
     } catch (e) { console.warn(e); }
   }
 
+  function buildCurrentSrtText() {
+    return state.subtitles.map((item, i) => `${i + 1}\n${secondsToSrtTime(item.startTime)} --> ${secondsToSrtTime(item.endTime)}\n${cleanLine(item.en)}${item.ar ? '\n' + cleanLine(item.ar) : ''}`).join('\n\n');
+  }
+
   async function saveLessonToCloud() {
     openMenu(false);
     if (!state.subtitles.length) return toast('Upload SRT first');
@@ -578,13 +605,13 @@
       const payload = {
         user_code: CLOUD_CONFIG.userCode,
         title,
-        video_url: state.videoUrl || '',
+        video_url: state.videoUrl && !String(state.videoUrl).startsWith('blob:') ? state.videoUrl : '',
         video_type: state.playerType,
         sync: state.offset,
         dialogue: state.subtitles,
         saved_phrases: state.savedLines.map(normalizeSavedLine),
         saved_words: state.savedWords.map(normalizeSavedWord),
-        subtitle_text: '',
+        subtitle_text: buildCurrentSrtText(),
         created_at: new Date().toISOString()
       };
       const { error } = await sb.from('lessons').insert(payload);
@@ -601,11 +628,74 @@
     openModal('savedModal');
     try {
       const sb = await getCloudClient();
-      const { data, error } = await sb.from('lessons').select('id,title,video_url,video_type,sync,dialogue,saved_phrases,saved_words,created_at').eq('user_code', CLOUD_CONFIG.userCode).order('created_at', { ascending:false });
+      const { data, error } = await sb.from('lessons').select('id,title,video_url,video_type,sync,dialogue,saved_phrases,saved_words,subtitle_text,created_at').eq('user_code', CLOUD_CONFIG.userCode).order('created_at', { ascending:false });
       if (error) throw error;
       state.cloudLessons = data || [];
-      $('savedBody').innerHTML = state.cloudLessons.length ? state.cloudLessons.map((l,i)=>`<div class="saved-item"><b>${escapeHtml(l.title || 'Untitled')}</b><p dir="ltr">${escapeHtml(l.video_url || 'No video link')}</p><small>${new Date(l.created_at).toLocaleString()}</small><div class="saved-actions"><button class="small-btn" data-cloud-load="${i}">Open</button></div></div>`).join('') : '<p>No cloud lessons yet.</p>';
+      $('savedBody').innerHTML = state.cloudLessons.length ? state.cloudLessons.map((l,i)=>`<div class="saved-item cloud-lesson"><b>${escapeHtml(l.title || 'Untitled')}</b><p dir="ltr">${escapeHtml(l.video_url || 'No video link')}</p><small>${new Date(l.created_at).toLocaleString()} • ${Array.isArray(l.dialogue) ? l.dialogue.length : 0} lines</small><div class="saved-actions"><button class="small-btn" data-cloud-load="${i}">Open</button><button class="small-btn" data-cloud-edit="${i}">Edit</button><button class="small-btn danger" data-cloud-delete="${i}">Delete</button></div></div>`).join('') : '<p>No cloud lessons yet.</p>';
     } catch (e) { console.error(e); $('savedBody').innerHTML = '<p>Cloud load failed.</p>'; }
+  }
+
+
+  function pickSubtitleTextFile() {
+    return new Promise(resolve => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.srt,.txt,.html,.htm';
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) return resolve(null);
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || ''));
+        r.onerror = () => resolve(null);
+        r.readAsText(file);
+      };
+      input.click();
+    });
+  }
+
+  async function editCloudLesson(i) {
+    const lesson = state.cloudLessons[Number(i)]; if (!lesson) return;
+    const title = prompt('Lesson title:', lesson.title || 'Untitled');
+    if (title === null) return;
+    const videoUrl = prompt('Video link / URL:', lesson.video_url || '');
+    if (videoUrl === null) return;
+    let sync = prompt('Sync offset seconds:', String(Number(lesson.sync || 0)));
+    if (sync === null) return;
+    sync = Number(sync || 0);
+
+    let dialogue = Array.isArray(lesson.dialogue) ? lesson.dialogue : [];
+    let subtitleText = lesson.subtitle_text || '';
+    if (confirm('Do you want to replace this lesson subtitles with a new SRT/HTML file?')) {
+      const text = await pickSubtitleTextFile();
+      if (text) {
+        const lower = text.toLowerCase();
+        dialogue = (lower.includes('<table') || lower.includes('<tr')) ? parseHtmlTable(text) : parseSrt(text);
+        subtitleText = text;
+      } else {
+        toast('No subtitle file selected');
+      }
+    }
+
+    try {
+      const sb = await getCloudClient();
+      const payload = { title: title || 'Untitled', video_url: videoUrl || '', sync, dialogue, subtitle_text: subtitleText };
+      const { error } = await sb.from('lessons').update(payload).eq('id', lesson.id).eq('user_code', CLOUD_CONFIG.userCode);
+      if (error) throw error;
+      toast('Cloud lesson updated');
+      await showCloudLibrary();
+    } catch (e) { console.error(e); alert('Cloud edit failed: ' + (e.message || e)); }
+  }
+
+  async function deleteCloudLesson(i) {
+    const lesson = state.cloudLessons[Number(i)]; if (!lesson) return;
+    if (!confirm(`Delete lesson "${lesson.title || 'Untitled'}" from cloud?`)) return;
+    try {
+      const sb = await getCloudClient();
+      const { error } = await sb.from('lessons').delete().eq('id', lesson.id).eq('user_code', CLOUD_CONFIG.userCode);
+      if (error) throw error;
+      toast('Cloud lesson deleted');
+      await showCloudLibrary();
+    } catch (e) { console.error(e); alert('Cloud delete failed: ' + (e.message || e)); }
   }
 
   async function loadCloudLesson(i) {
@@ -626,7 +716,8 @@
 
   async function loadUrl(url) {
     url = String(url || '').trim(); if (!url) return;
-    state.videoUrl = url; localStorage.setItem('jm_video_url', state.videoUrl);
+    state.videoUrl = url;
+    if (!url.startsWith('blob:')) localStorage.setItem('jm_video_url', state.videoUrl);
     closeModal('urlModal');
     const yt = extractYtId(url);
     el.emptyVideo.classList.add('hidden');
@@ -668,13 +759,16 @@
     }
     const lineMenu = e.target.closest('[data-line-menu]'); if (lineMenu) { const i = Number(lineMenu.dataset.lineMenu); toggleLineActionMenu(i, lineMenu); return; }
     const lineAction = e.target.closest('[data-line-action]'); if (lineAction) {
+      e.preventDefault();
+      e.stopPropagation();
       const i = Number(lineAction.dataset.index);
       const action = lineAction.dataset.lineAction;
       hideLineActionMenus();
-      if (action === 'copy') copyLine(i);
-      if (action === 'translate') translateLine(i);
-      if (action === 'save') saveLine(i);
-      if (action === 'playphrase') openPlayPhrase(cleanLine(state.subtitles[i]?.en));
+      if (!state.subtitles[i]) return;
+      if (action === 'copy') return copyLine(i);
+      if (action === 'translate') return translateLine(i);
+      if (action === 'save') return saveLine(i);
+      if (action === 'playphrase') return openPlayPhrase(cleanLine(state.subtitles[i]?.en));
       return;
     }
     const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
@@ -682,6 +776,8 @@
     const reviewOne = e.target.closest('[data-review-one]'); if (reviewOne) { const [type, index] = reviewOne.dataset.reviewOne.split(':'); showSingleReviewCard(type, index); return; }
     const savedPlay = e.target.closest('[data-saved-play]'); if (savedPlay) { const item = state.savedLines[Number(savedPlay.dataset.savedPlay)]; if (item) { const idx = state.subtitles.findIndex(s => lineKey(s) === item.key || Math.abs((s.startTime||0)-(item.startTime||0)) < .08); closeModal('savedModal'); if (idx >= 0) { renderList(idx); seekMedia(state.subtitles[idx].startTime, true); jumpToCard(idx); } else toast('Open the original lesson first'); } return; }
     const cloudLoad = e.target.closest('[data-cloud-load]'); if (cloudLoad) { loadCloudLesson(cloudLoad.dataset.cloudLoad); return; }
+    const cloudEdit = e.target.closest('[data-cloud-edit]'); if (cloudEdit) { editCloudLesson(cloudEdit.dataset.cloudEdit); return; }
+    const cloudDelete = e.target.closest('[data-cloud-delete]'); if (cloudDelete) { deleteCloudLesson(cloudDelete.dataset.cloudDelete); return; }
     if (e.target.closest('[data-review-reveal]')) { state.reviewRevealed = true; renderReviewCard(); return; }
     const gradeBtn = e.target.closest('[data-review-grade]'); if (gradeBtn) { const card = e.target.closest('[data-review-key]'); if (card) gradeReview(card.dataset.reviewKey, gradeBtn.dataset.reviewGrade, card.dataset.reviewType || ''); return; }
     if (e.target.closest('[data-show-saved-lines]')) { showSaved('lines'); return; }
@@ -700,7 +796,7 @@
   $('menuReviewCards').onclick = showReviewCards;
   $('menuSaveCloud').onclick = saveLessonToCloud;
   $('menuCloudLibrary').onclick = showCloudLibrary;
-  $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); localStorage.removeItem('jm_video_url'); state.videoUrl=''; state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; renderList(0); updateDock(null); openMenu(false); } };
+  $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); localStorage.removeItem('jm_video_url'); localStorage.removeItem('jm_last_lesson_saved_at'); state.videoUrl=''; state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; state.repeatStart=-1; state.repeatEnd=-1; try { el.movie.pause(); el.movie.removeAttribute('src'); el.movie.load(); } catch {} el.movie.classList.add('hidden'); el.ytHost.classList.add('hidden'); el.emptyVideo.classList.remove('hidden'); state.playerType='none'; renderList(0); updateDock(null); setStatus('New lesson'); openMenu(false); } };
   $('speedBtn').onclick = () => { const opts=[.5,.75,1,1.25,1.5,2]; state.speed = opts[(opts.indexOf(state.speed)+1)%opts.length] || 1; if (state.playerType === 'html5') el.movie.playbackRate = state.speed; if (state.yt?.setPlaybackRate) state.yt.setPlaybackRate(state.speed); updateControls(); debounceSave(); };
   $('syncMinus').onclick = () => { state.offset -= .25; updateControls(); debounceSave(); };
   $('syncPlus').onclick = () => { state.offset += .25; updateControls(); debounceSave(); };
@@ -717,6 +813,17 @@
   state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
   state.savedLines = state.savedLines.map(normalizeSavedLine);
   loadCloudUserLibrary();
-  const savedSubs = readJSON('jm_subtitles', []); if (savedSubs.length) { state.subtitles = savedSubs.filter(x => !shouldIgnoreSubtitle(x.en)); renderList(0); setStatus(`${state.subtitles.length} subtitles restored`); }
+  const savedSubs = readJSON('jm_subtitles', []);
+  const savedUrl = localStorage.getItem('jm_video_url') || '';
+  if (savedSubs.length) {
+    state.subtitles = savedSubs.filter(x => !shouldIgnoreSubtitle(x.en)).map(x => ({...x, time: x.time || formatTime(x.startTime)}));
+    renderList(0);
+    setStatus(`${state.subtitles.length} subtitles restored`);
+  }
+  if (savedUrl && !savedUrl.startsWith('blob:')) {
+    state.videoUrl = savedUrl;
+    const input = $('videoUrlInput'); if (input) input.value = savedUrl;
+    setTimeout(() => loadUrl(savedUrl), 250);
+  }
   updateControls(); syncLoop();
 })();

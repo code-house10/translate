@@ -20,3 +20,11 @@
 .subtitle-card.active .repeat-btn.active{background:#2563eb!important;color:#fff!important}
 .review-card[data-review-type="word"] .review-front{font-size:28px;text-align:center;color:#5b21b6;background:#faf5ff;border-color:#ddd6fe}
 .review-card[data-review-type="word"] .review-back{font-size:22px;text-align:center}
+
+/* Always-visible compact icons under each subtitle line */
+.line-action-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9}
+.line-action-strip .action-icon{height:40px;border:0;border-radius:13px;font-size:17px;font-weight:900;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(15,23,42,.06)}
+.line-action-strip .action-icon.copy{background:#eef2ff;color:#3730a3}.line-action-strip .action-icon.translate{background:#e0f2fe;color:#0369a1}.line-action-strip .action-icon.save{background:#fef3c7;color:#92400e}.line-action-strip .action-icon.playphrase{background:#ede9fe;color:#6d28d9}
+.line-action-strip .action-icon:active{transform:scale(.96)}
+.small-btn.danger{background:#fee2e2!important;color:#991b1b!important;border-color:#fecaca!important}
+.cloud-lesson p{word-break:break-all;margin:.35rem 0}.cloud-lesson small{display:block;color:#64748b;margin-top:4px}
