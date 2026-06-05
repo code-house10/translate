@@ -32,10 +32,17 @@
 
       <div id="subtitleDock" class="subtitle-dock hidden" role="button" tabindex="0">
         <div class="dock-actions" onclick="event.stopPropagation()">
+          <button id="jumpCurrentBtn" title="Find current card">🎯 Card</button>
           <button id="saveLineBtn" title="Save line">☆</button>
           <button id="copyLineBtn" title="Copy line">⧉</button>
           <button id="translateLineBtn" title="Translate line">AR</button>
           <button id="playPhraseLineBtn" title="PlayPhrase line">PP</button>
+        </div>
+        <div class="dock-repeat-tools" onclick="event.stopPropagation()">
+          <button id="loopCurrentBtn" title="Repeat current subtitle">⟲ One</button>
+          <button id="loopStartBtn" title="Set current subtitle as loop start">A Start</button>
+          <button id="loopEndBtn" title="Set current subtitle as loop end">B End</button>
+          <button id="loopOffBtn" title="Stop repeat">× Off</button>
         </div>
         <div id="dockEn" class="dock-en"></div>
         <div id="dockAr" class="dock-ar"></div>
@@ -77,6 +84,8 @@
       <div class="menu-grid">
         <button id="menuUploadSrt">Upload / change SRT</button>
         <button id="menuAzure">Translate all with Azure</button>
+        <button id="menuLaraAll">Translate all with Lara</button>
+        <button id="menuLaraSettings">Lara settings</button>
         <button id="menuSavedWords">Saved words</button>
         <button id="menuSavedLines">Saved lines</button>
         <button id="menuReviewCards">Review cards</button>
@@ -123,6 +132,21 @@
         <button id="dictPlayPhraseBtn" class="purple">PlayPhrase</button>
       </div>
       <div id="dictExamples" class="dict-examples"></div>
+    </div>
+  </div>
+
+
+  <div id="laraModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><b>Lara Translate settings</b><button data-close-modal="laraModal">×</button></div>
+      <p class="settings-hint">Use Lara for natural subtitle-line translation. You can either save credentials here for this device or set Vercel environment variables: <b>LARA_ACCESS_KEY_ID</b> and <b>LARA_ACCESS_KEY_SECRET</b>.</p>
+      <input id="laraKeyIdInput" class="text-input" dir="ltr" placeholder="Lara Access Key ID" />
+      <input id="laraSecretInput" class="text-input" dir="ltr" type="password" placeholder="Lara Access Key Secret" />
+      <div class="settings-actions">
+        <button id="saveLaraSettingsBtn" class="full-btn">Save Lara</button>
+        <button id="clearLaraSettingsBtn" class="small-btn danger">Clear</button>
+      </div>
+      <p id="laraSettingsStatus" class="menu-status"></p>
     </div>
   </div>
 

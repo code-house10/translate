@@ -216,6 +216,7 @@
     el.subtitleDock.classList.remove('hidden');
     el.dockEn.innerHTML = wordHtml(item.en, wordIndex);
     el.dockAr.innerHTML = item.ar || '';
+    updateDockRepeatButtons();
   }
 
   function syncLoop() {
@@ -289,7 +290,7 @@
       </div>
       <div class="line-action-strip" aria-label="Line actions">
         <button type="button" class="action-icon copy" data-line-action="copy" data-index="${i}" aria-label="Copy line" title="Copy line">📋</button>
-        <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line" title="Translate line">🌐</button>
+        <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line naturally with Lara" title="Translate naturally with Lara">🌐</button>
         <button type="button" class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
         <button type="button" class="action-icon playphrase" data-line-action="playphrase" data-index="${i}" aria-label="Search in PlayPhrase" title="Search in PlayPhrase">▶</button>
       </div>
@@ -305,6 +306,69 @@
     if (idx < 0) return;
     renderList(idx);
     setTimeout(() => $('card-' + idx)?.scrollIntoView({behavior:'smooth', block:'center'}), 40);
+  }
+
+  function currentSubtitleIndex() {
+    return state.lastIndex >= 0 ? state.lastIndex : (state.activeIndex >= 0 ? state.activeIndex : -1);
+  }
+
+  function updateDockRepeatButtons() {
+    const one = $('loopCurrentBtn'), start = $('loopStartBtn'), end = $('loopEndBtn'), off = $('loopOffBtn');
+    if (!one || !start || !end || !off) return;
+    const i = currentSubtitleIndex();
+    const inLoop = state.repeatStart >= 0 && state.repeatEnd >= 0 && i >= state.repeatStart && i <= state.repeatEnd;
+    one.classList.toggle('active', state.repeatStart === i && state.repeatEnd === i);
+    start.classList.toggle('active', state.repeatStart === i);
+    end.classList.toggle('active', state.repeatEnd === i && state.repeatStart !== state.repeatEnd);
+    off.classList.toggle('active', state.repeatStart >= 0);
+    one.textContent = inLoop ? '⟲ Looping' : '⟲ One';
+  }
+
+  function setRepeatRange(start, end, playFromStart = true) {
+    if (!state.subtitles.length) return;
+    start = Math.max(0, Math.min(Number(start), state.subtitles.length - 1));
+    end = Math.max(0, Math.min(Number(end), state.subtitles.length - 1));
+    state.repeatStart = Math.min(start, end);
+    state.repeatEnd = Math.max(start, end);
+    state.repeatGuardUntil = performance.now() + 300;
+    renderList(currentSubtitleIndex() >= 0 ? currentSubtitleIndex() : state.repeatStart);
+    updateDockRepeatButtons();
+    if (playFromStart) seekMedia(state.subtitles[state.repeatStart].startTime, true);
+    toast(state.repeatStart === state.repeatEnd ? 'Repeating current subtitle' : `Looping ${state.repeatEnd - state.repeatStart + 1} subtitles`);
+    debounceSave();
+  }
+
+  function repeatCurrentSubtitle() {
+    const i = currentSubtitleIndex();
+    if (i < 0) return toast('No active subtitle yet');
+    setRepeatRange(i, i, true);
+    jumpToCard(i);
+  }
+
+  function setLoopStartFromCurrent() {
+    const i = currentSubtitleIndex();
+    if (i < 0) return toast('No active subtitle yet');
+    if (state.repeatEnd >= 0) setRepeatRange(i, state.repeatEnd, true);
+    else setRepeatRange(i, i, true);
+    toast('Loop start set. Go to another subtitle and tap B End.');
+    jumpToCard(i);
+  }
+
+  function setLoopEndFromCurrent() {
+    const i = currentSubtitleIndex();
+    if (i < 0) return toast('No active subtitle yet');
+    const start = state.repeatStart >= 0 ? state.repeatStart : i;
+    setRepeatRange(start, i, true);
+    jumpToCard(i);
+  }
+
+  function stopRepeat() {
+    state.repeatStart = -1;
+    state.repeatEnd = -1;
+    updateDockRepeatButtons();
+    renderList(currentSubtitleIndex() >= 0 ? currentSubtitleIndex() : state.listCenter);
+    toast('Repeat off');
+    debounceSave();
   }
 
   function hideLineActionMenus() {
@@ -331,11 +395,104 @@
     return data.translatedText || '';
   }
 
+  function getLaraConfig() {
+    return {
+      accessKeyId: localStorage.getItem('jm_lara_access_key_id') || '',
+      accessKeySecret: localStorage.getItem('jm_lara_access_key_secret') || ''
+    };
+  }
+
+  function getLaraPayload(extra = {}) {
+    const cfg = getLaraConfig();
+    const payload = {
+      source: 'en-US',
+      target: 'ar',
+      style: 'fluid',
+      instructions: [
+        'Translate movie and series subtitle dialogue into natural Arabic.',
+        'Keep the translation concise and suitable for subtitles.',
+        'Preserve names, jokes, emotion, slang, tone, and implied meaning.',
+        'Do not add explanations, notes, or quotation marks.'
+      ],
+      ...extra
+    };
+    if (cfg.accessKeyId && cfg.accessKeySecret) payload.credentials = cfg;
+    return payload;
+  }
+
+  function openLaraSettings(message = '') {
+    openMenu(false);
+    const cfg = getLaraConfig();
+    if ($('laraKeyIdInput')) $('laraKeyIdInput').value = cfg.accessKeyId;
+    if ($('laraSecretInput')) $('laraSecretInput').value = cfg.accessKeySecret;
+    if ($('laraSettingsStatus')) $('laraSettingsStatus').textContent = message || 'Add credentials here, or use Vercel environment variables.';
+    openModal('laraModal');
+  }
+
+  async function translateLara(text) {
+    const res = await fetch('/api/lara-translate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(getLaraPayload({ text }))
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Lara failed');
+    return data.translatedText || '';
+  }
+
+  async function translateLaraItems(items) {
+    const res = await fetch('/api/lara-translate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(getLaraPayload({ items }))
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Lara failed');
+    return data.translated || [];
+  }
+
   async function translateLine(idx) {
     const item = state.subtitles[idx]; if (!item) return;
-    setStatus('Translating line with MyMemory...');
-    try { item.ar = await translateMyMemory(cleanLine(item.en)); $('ar-' + idx) && ($('ar-' + idx).innerHTML = escapeHtml(item.ar)); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); debounceSave(); scheduleCloudLibrarySync(); toast('Line translated'); }
-    catch { toast('MyMemory failed'); }
+    setStatus('Translating line naturally with Lara...');
+    try {
+      item.ar = await translateLara(cleanLine(item.en));
+      $('ar-' + idx) && ($('ar-' + idx).innerHTML = escapeHtml(item.ar));
+      if (idx === state.lastIndex) updateDock(item, state.lastWordIndex);
+      debounceSave(); scheduleCloudLibrarySync(); toast('Lara translation done');
+    } catch (e) {
+      console.warn(e);
+      toast('Lara needs setup');
+      openLaraSettings(e.message || 'Lara credentials required.');
+    }
+  }
+
+  async function translateAllLara() {
+    const jobs = state.subtitles.map((it, index) => ({ index, text: cleanLine(it.en) })).filter(x => x.text && !state.subtitles[x.index].ar);
+    if (!jobs.length) return toast('Nothing to translate');
+    openMenu(false); setStatus(`Lara translating ${jobs.length} lines naturally...`);
+    const chunkSize = 24;
+    let done = 0;
+    for (let i=0; i<jobs.length; i+=chunkSize) {
+      const items = jobs.slice(i, i+chunkSize);
+      try {
+        const rows = await translateLaraItems(items);
+        for (const row of rows) {
+          if (state.subtitles[row.index]) {
+            state.subtitles[row.index].ar = row.ar || '';
+            done++;
+          }
+        }
+        setStatus(`Lara translated ${done}/${jobs.length}`);
+        renderList(state.listCenter); debounceSave(); scheduleCloudLibrarySync();
+      } catch (e) {
+        console.warn(e);
+        toast('Lara needs setup');
+        openLaraSettings(e.message || 'Lara credentials required.');
+        break;
+      }
+      await new Promise(r => setTimeout(r, 650));
+    }
+    saveState(); setStatus('Lara translation finished'); toast('Natural translation finished');
   }
 
   async function translateAllAzure() {
@@ -384,8 +541,8 @@
     const key = lineKey(item);
     let ar = item.ar || '';
     if (!ar && translateIfMissing) {
-      setStatus('Translating line before saving...');
-      try { ar = await translateMyMemory(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch { ar = ''; }
+      setStatus('Translating line with Lara before saving...');
+      try { ar = await translateLara(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch (e) { console.warn(e); ar = ''; openLaraSettings(e.message || 'Lara credentials required.'); }
     }
     const existing = state.savedLines.find(x => x.key === key);
     if (existing) { existing.ar = existing.ar || ar; toast('Line already saved'); }
@@ -739,20 +896,12 @@
     const rep = e.target.closest('[data-repeat]'); if (rep) {
       const i = Number(rep.dataset.repeat);
       if (state.repeatStart < 0 || state.repeatEnd < 0) {
-        state.repeatStart = state.repeatEnd = i;
-        seekMedia(state.subtitles[i].startTime, true);
+        setRepeatRange(i, i, true);
         toast('Repeat starts here');
-      } else if (state.repeatStart === i && state.repeatEnd === i) {
-        state.repeatStart = state.repeatEnd = -1;
-        toast('Repeat off');
-      } else if (i >= state.repeatStart && i <= state.repeatEnd) {
-        state.repeatStart = state.repeatEnd = -1;
-        toast('Repeat off');
+      } else if ((state.repeatStart === i && state.repeatEnd === i) || (i >= state.repeatStart && i <= state.repeatEnd)) {
+        stopRepeat();
       } else {
-        state.repeatStart = Math.min(state.repeatStart, i);
-        state.repeatEnd = Math.max(state.repeatEnd, i);
-        seekMedia(state.subtitles[state.repeatStart].startTime, true);
-        toast(`Looping ${state.repeatEnd - state.repeatStart + 1} subtitles`);
+        setRepeatRange(Math.min(state.repeatStart, i), Math.max(state.repeatEnd, i), true);
       }
       renderList(i);
       return;
@@ -791,6 +940,8 @@
   $('subtitleFileInput').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => handleSubtitleContent(r.result); r.readAsText(f); };
   $('menuUploadSrt').onclick = () => { openMenu(false); $('subtitleFileInput').click(); };
   $('menuAzure').onclick = translateAllAzure;
+  $('menuLaraAll').onclick = translateAllLara;
+  $('menuLaraSettings').onclick = () => openLaraSettings();
   $('menuSavedWords').onclick = () => { openMenu(false); showSaved('words'); };
   $('menuSavedLines').onclick = () => { openMenu(false); showSaved('lines'); };
   $('menuReviewCards').onclick = showReviewCards;
@@ -801,12 +952,19 @@
   $('syncMinus').onclick = () => { state.offset -= .25; updateControls(); debounceSave(); };
   $('syncPlus').onclick = () => { state.offset += .25; updateControls(); debounceSave(); };
   $('autoPauseBtn').onclick = () => { state.autoPause = !state.autoPause; updateControls(); };
-  $('goActiveBtn').onclick = () => jumpToCard(state.lastIndex >= 0 ? state.lastIndex : 0);
-  el.subtitleDock.onclick = () => jumpToCard(state.lastIndex);
-  $('saveLineBtn').onclick = () => saveLine(state.lastIndex);
-  $('copyLineBtn').onclick = () => copyLine(state.lastIndex);
-  $('translateLineBtn').onclick = () => translateLine(state.lastIndex);
-  $('playPhraseLineBtn').onclick = () => { const item = state.subtitles[state.lastIndex]; if (item) openPlayPhrase(cleanLine(item.en)); };
+  $('goActiveBtn').onclick = () => jumpToCard(currentSubtitleIndex() >= 0 ? currentSubtitleIndex() : 0);
+  el.subtitleDock.onclick = () => jumpToCard(currentSubtitleIndex());
+  $('jumpCurrentBtn').onclick = () => jumpToCard(currentSubtitleIndex());
+  $('loopCurrentBtn').onclick = repeatCurrentSubtitle;
+  $('loopStartBtn').onclick = setLoopStartFromCurrent;
+  $('loopEndBtn').onclick = setLoopEndFromCurrent;
+  $('loopOffBtn').onclick = stopRepeat;
+  $('saveLineBtn').onclick = () => saveLine(currentSubtitleIndex());
+  $('copyLineBtn').onclick = () => copyLine(currentSubtitleIndex());
+  $('translateLineBtn').onclick = () => translateLine(currentSubtitleIndex());
+  $('playPhraseLineBtn').onclick = () => { const item = state.subtitles[currentSubtitleIndex()]; if (item) openPlayPhrase(cleanLine(item.en)); };
+  if ($('saveLaraSettingsBtn')) $('saveLaraSettingsBtn').onclick = () => { localStorage.setItem('jm_lara_access_key_id', $('laraKeyIdInput').value.trim()); localStorage.setItem('jm_lara_access_key_secret', $('laraSecretInput').value.trim()); $('laraSettingsStatus').textContent = 'Lara settings saved on this device.'; toast('Lara saved'); };
+  if ($('clearLaraSettingsBtn')) $('clearLaraSettingsBtn').onclick = () => { localStorage.removeItem('jm_lara_access_key_id'); localStorage.removeItem('jm_lara_access_key_secret'); $('laraKeyIdInput').value = ''; $('laraSecretInput').value = ''; $('laraSettingsStatus').textContent = 'Local Lara settings cleared.'; toast('Lara cleared'); };
 
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
 
