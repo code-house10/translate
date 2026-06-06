@@ -28,7 +28,12 @@
     cloudLessons: [],
     reviewQueue: [],
     reviewIndex: 0,
-    reviewRevealed: false
+    reviewRevealed: false,
+    isSeeking: false,
+    seekGuardUntil: 0,
+    lastSeekTarget: 0,
+    lastSeekSubtitleTime: 0,
+    hlsReady: false
   };
 
   const el = {
@@ -180,10 +185,129 @@
     return 0;
   }
 
-  function seekMedia(time, play=true) {
-    const target = Math.max(0, time - 0.06);
-    if (state.playerType === 'html5') { el.movie.currentTime = target; if (play) el.movie.play().catch(()=>{}); el.movie.playbackRate = state.speed; }
-    if (state.playerType === 'youtube' && state.yt?.seekTo) { state.yt.seekTo(target, true); if (play) state.yt.playVideo(); if (state.yt.setPlaybackRate) state.yt.setPlaybackRate(state.speed); }
+  function subtitleTimeToMediaTime(time) {
+    // syncLoop uses: subtitleTime = mediaTime - offset
+    // so a click on subtitle time must seek to: subtitleTime + offset.
+    return Math.max(0, (Number(time) || 0) + state.offset - 0.08);
+  }
+
+  function waitForEvent(target, names, timeout = 4500, predicate = null) {
+    names = Array.isArray(names) ? names : [names];
+    return new Promise(resolve => {
+      let done = false;
+      const cleanup = ok => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        names.forEach(n => target.removeEventListener(n, onEvent));
+        resolve(ok);
+      };
+      const onEvent = () => { if (!predicate || predicate()) cleanup(true); };
+      names.forEach(n => target.addEventListener(n, onEvent, { passive: true }));
+      const timer = setTimeout(() => cleanup(predicate ? !!predicate() : false), timeout);
+      if (predicate && predicate()) cleanup(true);
+    });
+  }
+
+  function getBufferedAhead(target) {
+    const ranges = el.movie.buffered;
+    for (let i = 0; i < ranges.length; i++) {
+      if (target >= ranges.start(i) && target <= ranges.end(i)) return Math.max(0, ranges.end(i) - target);
+    }
+    return 0;
+  }
+
+  function canUseTimeFragment(url) {
+    if (!url || url.startsWith('blob:') || /\.m3u8(?:[?#]|$)/i.test(url)) return false;
+    return /^https?:/i.test(url) || /\.(mp4|webm|ogg)(?:[?#]|$)/i.test(url);
+  }
+
+  function urlWithTimeFragment(url, target) {
+    const base = String(url || '').split('#')[0];
+    return `${base}#t=${Math.max(0, target).toFixed(2)}`;
+  }
+
+  async function playMediaElement() {
+    el.movie.playbackRate = state.speed;
+    if (el.movie.paused) {
+      try { await el.movie.play(); } catch (e) {
+        // Mobile browsers may require one user gesture; the seek still happens, and the user can press play.
+      }
+    }
+  }
+
+  async function html5SmartSeek(target, play = true, opts = {}) {
+    const token = Date.now() + Math.random();
+    state.seekToken = token;
+    state.isSeeking = true;
+    state.seekGuardUntil = performance.now() + 1800;
+    state.lastSeekTarget = target;
+    setStatus(`Seeking ${formatTime(target)}...`);
+
+    const finish = ok => {
+      if (state.seekToken === token) {
+        state.isSeeking = false;
+        state.seekGuardUntil = performance.now() + 500;
+        if (ok) setStatus(`Ready at ${formatTime(el.movie.currentTime || target)}`);
+      }
+      return ok;
+    };
+
+    try {
+      if (!Number.isFinite(el.movie.duration) || el.movie.readyState < 1) {
+        try { el.movie.load(); } catch {}
+        await waitForEvent(el.movie, ['loadedmetadata','durationchange'], 6000, () => el.movie.readyState >= 1 || Number.isFinite(el.movie.duration));
+      }
+
+      el.movie.playbackRate = state.speed;
+      try { el.movie.currentTime = target; } catch {}
+      if (play) playMediaElement();
+
+      let ok = await waitForEvent(el.movie, ['seeked','canplay','playing','timeupdate'], 5200, () => {
+        const near = Math.abs((el.movie.currentTime || 0) - target) < 2.2;
+        return near && (el.movie.readyState >= 2 || getBufferedAhead(target) > 0.5);
+      });
+
+      if (!ok && canUseTimeFragment(state.videoUrl)) {
+        // Some MP4/CDN links freeze on deep seeks unless the browser starts the request with a media fragment.
+        setStatus('Recovering stream near requested scene...');
+        const src = urlWithTimeFragment(state.videoUrl, target);
+        try { el.movie.pause(); } catch {}
+        el.movie.src = src;
+        try { el.movie.load(); } catch {}
+        await waitForEvent(el.movie, ['loadedmetadata','durationchange'], 6500, () => el.movie.readyState >= 1 || Number.isFinite(el.movie.duration));
+        try { if (Math.abs((el.movie.currentTime || 0) - target) > 3) el.movie.currentTime = target; } catch {}
+        if (play) await playMediaElement();
+        ok = await waitForEvent(el.movie, ['playing','canplay','timeupdate','seeked'], 6500, () => {
+          const near = Math.abs((el.movie.currentTime || 0) - target) < 3.5 || (el.movie.currentTime || 0) > target - 4;
+          return near && (el.movie.readyState >= 2 || !el.movie.paused);
+        });
+      }
+
+      if (!ok) {
+        setStatus('The video link is slow or does not support reliable seeking. Try MP4 with byte-range support or HLS/M3U8.');
+        toast('Seek is stuck: use Recover video or a better direct MP4/HLS link');
+      }
+      return finish(ok);
+    } catch (err) {
+      console.warn('Smart seek failed', err);
+      setStatus('Could not seek this video link reliably.');
+      toast('Video seek failed');
+      return finish(false);
+    }
+  }
+
+  function seekMedia(time, play=true, opts = {}) {
+    const target = subtitleTimeToMediaTime(time);
+    state.lastSeekSubtitleTime = Number(time) || 0;
+    if (state.playerType === 'html5') { html5SmartSeek(target, play, opts); }
+    if (state.playerType === 'youtube' && state.yt?.seekTo) {
+      state.seekGuardUntil = performance.now() + 900;
+      state.lastSeekTarget = target;
+      state.yt.seekTo(target, true);
+      if (play) state.yt.playVideo();
+      if (state.yt.setPlaybackRate) state.yt.setPlaybackRate(state.speed);
+    }
   }
 
   function updateWordProgress(item, currentTime) {
@@ -224,10 +348,15 @@
       const now = performance.now();
       const mediaTime = getMediaTime() - state.offset;
 
+      if (state.isSeeking && now < state.seekGuardUntil) {
+        state.syncTicker = requestAnimationFrame(syncLoop);
+        return;
+      }
+
       if (state.repeatStart >= 0 && state.repeatEnd >= 0 && now > state.repeatGuardUntil) {
         const end = state.subtitles[state.repeatEnd]?.endTime ?? 0;
         if (mediaTime >= end) {
-          state.repeatGuardUntil = now + 360;
+          state.repeatGuardUntil = now + 1200;
           seekMedia(state.subtitles[state.repeatStart].startTime, true);
         }
       }
@@ -871,23 +1000,89 @@
   function closeModal(id) { $(id).classList.add('hidden'); }
   function updateControls() { el.syncValue.textContent = `${state.offset.toFixed(2)}s`; el.speedBtn.textContent = `${state.speed.toFixed(1)}x`; el.autoPauseBtn.textContent = state.autoPause ? 'On' : 'Off'; }
 
-  async function loadUrl(url) {
+  async function loadUrl(url, opts = {}) {
     url = String(url || '').trim(); if (!url) return;
     state.videoUrl = url;
+    state.isSeeking = false;
+    state.hlsReady = false;
     if (!url.startsWith('blob:')) localStorage.setItem('jm_video_url', state.videoUrl);
     closeModal('urlModal');
     const yt = extractYtId(url);
     el.emptyVideo.classList.add('hidden');
     if (yt) return loadYouTube(yt);
-    state.playerType = 'html5'; el.ytHost.classList.add('hidden'); el.movie.classList.remove('hidden'); destroyHls();
-    if (/\.m3u8(?:[?#]|$)/i.test(url)) await attachHls(url); else { el.movie.src = url; el.movie.play().catch(()=>{}); }
-    el.movie.playbackRate = state.speed; setStatus('Video loaded');
+    state.playerType = 'html5';
+    el.ytHost.classList.add('hidden');
+    el.movie.classList.remove('hidden');
+    destroyHls();
+    el.movie.preload = 'auto';
+    el.movie.playsInline = true;
+    setStatus('Loading video...');
+    if (/\.m3u8(?:[?#]|$)/i.test(url)) await attachHls(url);
+    else {
+      try { el.movie.pause(); } catch {}
+      el.movie.src = url;
+      try { el.movie.load(); } catch {}
+      await waitForEvent(el.movie, ['loadedmetadata','canplay'], 4500, () => el.movie.readyState >= 1);
+      if (opts.autoplay !== false) playMediaElement();
+    }
+    el.movie.playbackRate = state.speed;
+    setStatus('Video loaded');
   }
 
   function extractYtId(url) { const m = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/); return m?.[1] || null; }
   async function loadYouTube(id) { state.playerType = 'youtube'; el.movie.classList.add('hidden'); el.ytHost.classList.remove('hidden'); if (!window.YT?.Player) { await loadScript('https://www.youtube.com/iframe_api'); await new Promise(r => { window.onYouTubeIframeAPIReady = r; setTimeout(r, 1500); }); } if (state.yt?.loadVideoById) state.yt.loadVideoById(id); else state.yt = new YT.Player('ytPlayer', { videoId:id, playerVars:{playsinline:1, rel:0, modestbranding:1}, events:{onReady:e=>{e.target.playVideo(); if (e.target.setPlaybackRate) e.target.setPlaybackRate(state.speed);}} }); }
   function destroyHls() { if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; } }
-  async function attachHls(url) { if (el.movie.canPlayType('application/vnd.apple.mpegurl')) { el.movie.src = url; el.movie.play().catch(()=>{}); return; } await loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest'); if (window.Hls?.isSupported()) { state.hls = new Hls({enableWorker:true, backBufferLength:60}); state.hls.loadSource(url); state.hls.attachMedia(el.movie); el.movie.play().catch(()=>{}); } else toast('HLS not supported'); }
+  async function attachHls(url) {
+    if (el.movie.canPlayType('application/vnd.apple.mpegurl')) {
+      el.movie.src = url;
+      try { el.movie.load(); } catch {}
+      await waitForEvent(el.movie, ['loadedmetadata','canplay'], 5000, () => el.movie.readyState >= 1);
+      playMediaElement();
+      state.hlsReady = true;
+      return;
+    }
+    await loadScript('https://cdn.jsdelivr.net/npm/hls.js@latest');
+    if (window.Hls?.isSupported()) {
+      state.hls = new Hls({
+        enableWorker: true,
+        backBufferLength: 90,
+        maxBufferLength: 45,
+        maxMaxBufferLength: 120,
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 15000
+      });
+      state.hls.on(Hls.Events.MANIFEST_PARSED, () => { state.hlsReady = true; playMediaElement(); setStatus('HLS video ready'); });
+      state.hls.on(Hls.Events.ERROR, (event, data) => {
+        console.warn('HLS error', data);
+        if (!data?.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { state.hls.startLoad(); setStatus('Recovering video network...'); }
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { state.hls.recoverMediaError(); setStatus('Recovering video media...'); }
+        else { destroyHls(); toast('HLS playback failed'); }
+      });
+      state.hls.loadSource(url);
+      state.hls.attachMedia(el.movie);
+    } else toast('HLS not supported');
+  }
+
+
+  async function recoverVideoPlayback() {
+    if (state.playerType !== 'html5') {
+      const idx = currentSubtitleIndex();
+      if (idx >= 0) seekMedia(state.subtitles[idx].startTime, true);
+      return;
+    }
+    const idx = currentSubtitleIndex();
+    const srtTime = idx >= 0 ? state.subtitles[idx].startTime : Math.max(0, (el.movie.currentTime || 0) - state.offset);
+    const target = subtitleTimeToMediaTime(srtTime);
+    toast('Recovering video...');
+    if (canUseTimeFragment(state.videoUrl)) {
+      try { el.movie.pause(); } catch {}
+      el.movie.src = urlWithTimeFragment(state.videoUrl, target);
+      try { el.movie.load(); } catch {}
+      await waitForEvent(el.movie, ['loadedmetadata','canplay'], 6500, () => el.movie.readyState >= 1);
+    }
+    await html5SmartSeek(target, true, { forceReload: true });
+  }
 
   document.addEventListener('click', e => {
     const wordEl = e.target.closest('.word'); if (wordEl) { e.stopPropagation(); pauseMedia(); openDict(wordEl.dataset.word, Number(e.target.closest('[data-index]')?.dataset.index ?? state.lastIndex)); return; }
@@ -947,6 +1142,7 @@
   $('menuReviewCards').onclick = showReviewCards;
   $('menuSaveCloud').onclick = saveLessonToCloud;
   $('menuCloudLibrary').onclick = showCloudLibrary;
+  if ($('menuRecoverVideo')) $('menuRecoverVideo').onclick = () => { openMenu(false); recoverVideoPlayback(); };
   $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); localStorage.removeItem('jm_video_url'); localStorage.removeItem('jm_last_lesson_saved_at'); state.videoUrl=''; state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; state.repeatStart=-1; state.repeatEnd=-1; try { el.movie.pause(); el.movie.removeAttribute('src'); el.movie.load(); } catch {} el.movie.classList.add('hidden'); el.ytHost.classList.add('hidden'); el.emptyVideo.classList.remove('hidden'); state.playerType='none'; renderList(0); updateDock(null); setStatus('New lesson'); openMenu(false); } };
   $('speedBtn').onclick = () => { const opts=[.5,.75,1,1.25,1.5,2]; state.speed = opts[(opts.indexOf(state.speed)+1)%opts.length] || 1; if (state.playerType === 'html5') el.movie.playbackRate = state.speed; if (state.yt?.setPlaybackRate) state.yt.setPlaybackRate(state.speed); updateControls(); debounceSave(); };
   $('syncMinus').onclick = () => { state.offset -= .25; updateControls(); debounceSave(); };
@@ -967,6 +1163,9 @@
   if ($('clearLaraSettingsBtn')) $('clearLaraSettingsBtn').onclick = () => { localStorage.removeItem('jm_lara_access_key_id'); localStorage.removeItem('jm_lara_access_key_secret'); $('laraKeyIdInput').value = ''; $('laraSecretInput').value = ''; $('laraSettingsStatus').textContent = 'Local Lara settings cleared.'; toast('Lara cleared'); };
 
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
+  el.movie.addEventListener('waiting', () => { if (state.playerType === 'html5') setStatus('Buffering video...'); });
+  el.movie.addEventListener('stalled', () => { if (state.playerType === 'html5') setStatus('Video stalled. Use Menu → Recover video if it does not resume.'); });
+  el.movie.addEventListener('playing', () => { if (state.playerType === 'html5' && !state.isSeeking) setStatus('Playing'); });
 
   state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
   state.savedLines = state.savedLines.map(normalizeSavedLine);
