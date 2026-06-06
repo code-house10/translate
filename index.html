@@ -92,6 +92,9 @@
         <button id="menuSaveCloud">Save to cloud</button>
         <button id="menuCloudLibrary">Cloud library</button>
         <button id="menuRecoverVideo">Recover video</button>
+        <button id="menuCacheVideo">Cache video</button>
+        <button id="menuUseCache">Use cached video</button>
+        <button id="menuClearCache">Clear video cache</button>
         <button id="menuClear">New lesson</button>
       </div>
       <div class="control-row">
@@ -160,5 +163,10 @@
 
   <div id="toast" class="toast hidden"></div>
   <script src="./app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    }
+  </script>
 </body>
 </html>

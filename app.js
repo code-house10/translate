@@ -33,7 +33,10 @@
     seekGuardUntil: 0,
     lastSeekTarget: 0,
     lastSeekSubtitleTime: 0,
-    hlsReady: false
+    hlsReady: false,
+    videoBlobUrl: '',
+    usingCachedVideo: false,
+    cacheDbPromise: null
   };
 
   const el = {
@@ -119,6 +122,174 @@
   }
 
   function loadScript(src) { return new Promise((resolve, reject) => { const existing = [...document.scripts].find(s => s.src === src); if (existing) return resolve(); const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s); }); }
+
+  const VIDEO_CACHE_DB = 'jungle_movie_video_cache_v1';
+  const VIDEO_CACHE_STORE = 'videos';
+
+  function isCacheableVideoUrl(url) {
+    url = String(url || '').trim();
+    if (!/^https?:\/\//i.test(url)) return false;
+    if (extractYtId(url)) return false;
+    if (/\.m3u8(?:[?#]|$)/i.test(url)) return false;
+    return true;
+  }
+
+  function openVideoCacheDb() {
+    if (state.cacheDbPromise) return state.cacheDbPromise;
+    state.cacheDbPromise = new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) return reject(new Error('IndexedDB is not supported on this browser.'));
+      const req = indexedDB.open(VIDEO_CACHE_DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(VIDEO_CACHE_STORE)) db.createObjectStore(VIDEO_CACHE_STORE, { keyPath: 'url' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('Cannot open video cache.'));
+    });
+    return state.cacheDbPromise;
+  }
+
+  async function getCachedVideo(url) {
+    try {
+      const db = await openVideoCacheDb();
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(VIDEO_CACHE_STORE, 'readonly');
+        const req = tx.objectStore(VIDEO_CACHE_STORE).get(url);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('Video cache read failed', e);
+      return null;
+    }
+  }
+
+  async function putCachedVideo(url, blob, meta = {}) {
+    const db = await openVideoCacheDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(VIDEO_CACHE_STORE, 'readwrite');
+      tx.objectStore(VIDEO_CACHE_STORE).put({
+        url,
+        blob,
+        size: blob.size,
+        type: blob.type || meta.type || 'video/mp4',
+        title: meta.title || '',
+        savedAt: new Date().toISOString()
+      });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Could not save video cache.'));
+    });
+  }
+
+  async function removeCachedVideo(url) {
+    const db = await openVideoCacheDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(VIDEO_CACHE_STORE, 'readwrite');
+      tx.objectStore(VIDEO_CACHE_STORE).delete(url);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error('Could not delete cached video.'));
+    });
+  }
+
+  function humanSize(bytes) {
+    bytes = Number(bytes) || 0;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  async function fetchVideoBlobWithProgress(url) {
+    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!res.ok) throw new Error(`Video download failed: ${res.status}`);
+    const type = res.headers.get('content-type') || 'video/mp4';
+    const total = Number(res.headers.get('content-length')) || 0;
+    if (!res.body || !res.body.getReader) {
+      setStatus('Downloading video cache...');
+      return await res.blob();
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      if (total) setStatus(`Caching video ${Math.round(received / total * 100)}% • ${humanSize(received)} / ${humanSize(total)}`);
+      else setStatus(`Caching video... ${humanSize(received)}`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    return new Blob(chunks, { type });
+  }
+
+  async function cacheCurrentVideo() {
+    const url = state.videoUrl && !String(state.videoUrl).startsWith('blob:') ? state.videoUrl : (localStorage.getItem('jm_video_url') || '');
+    if (!isCacheableVideoUrl(url)) {
+      toast('This video type cannot be cached. Use a direct MP4/WebM URL.');
+      setStatus('Cache works best with direct MP4/WebM links, not YouTube, HLS/M3U8, or local blob links.');
+      return;
+    }
+    try {
+      const existing = await getCachedVideo(url);
+      if (existing?.blob) {
+        toast(`Already cached: ${humanSize(existing.size)}`);
+        setStatus(`Cached video ready: ${humanSize(existing.size)}`);
+        return;
+      }
+      if (!confirm('Download and save this video on this device for faster seeking? Large movies may need storage space.')) return;
+      setStatus('Starting video cache download...');
+      const blob = await fetchVideoBlobWithProgress(url);
+      await putCachedVideo(url, blob, { title: document.title, type: blob.type });
+      localStorage.setItem('jm_video_cache_url', url);
+      toast('Video cached on this device');
+      setStatus(`Cached video saved: ${humanSize(blob.size)}. Reopening and deep seeking should be faster.`);
+      await loadUrl(url, { useCache: true, autoplay: false });
+    } catch (e) {
+      console.error(e);
+      toast('Could not cache this video');
+      setStatus('Video cache failed. The server may block CORS downloads, or device storage may be full.');
+    }
+  }
+
+  async function cachedPlaybackUrl(originalUrl, opts = {}) {
+    state.usingCachedVideo = false;
+    if (!isCacheableVideoUrl(originalUrl)) return originalUrl;
+    const cached = await getCachedVideo(originalUrl);
+    if (!cached?.blob) {
+      if (opts.forceCache) toast('No cached video found for this link');
+      return originalUrl;
+    }
+    if (state.videoBlobUrl) {
+      try { URL.revokeObjectURL(state.videoBlobUrl); } catch {}
+      state.videoBlobUrl = '';
+    }
+    state.videoBlobUrl = URL.createObjectURL(cached.blob);
+    state.usingCachedVideo = true;
+    setStatus(`Using cached video • ${humanSize(cached.size)}`);
+    return state.videoBlobUrl;
+  }
+
+  async function useCachedVideo() {
+    const url = state.videoUrl || localStorage.getItem('jm_video_url') || localStorage.getItem('jm_video_cache_url') || '';
+    if (!url) return toast('No video link found');
+    await loadUrl(url, { useCache: true, forceCache: true, autoplay: false });
+  }
+
+  async function clearCurrentVideoCache() {
+    const url = state.videoUrl || localStorage.getItem('jm_video_url') || localStorage.getItem('jm_video_cache_url') || '';
+    if (!url) return toast('No cached video selected');
+    try {
+      await removeCachedVideo(url);
+      localStorage.removeItem('jm_video_cache_url');
+      if (state.videoBlobUrl) { try { URL.revokeObjectURL(state.videoBlobUrl); } catch {} state.videoBlobUrl = ''; }
+      state.usingCachedVideo = false;
+      toast('Video cache cleared');
+      setStatus('Cached video removed from this device.');
+    } catch (e) {
+      console.error(e);
+      toast('Could not clear cache');
+    }
+  }
 
   function parseSrt(content) {
     const blocks = String(content || '').replace(/\r/g, '').trim().split(/\n\s*\n/);
@@ -268,7 +439,7 @@
         return near && (el.movie.readyState >= 2 || getBufferedAhead(target) > 0.5);
       });
 
-      if (!ok && canUseTimeFragment(state.videoUrl)) {
+      if (!ok && !state.usingCachedVideo && canUseTimeFragment(state.videoUrl)) {
         // Some MP4/CDN links freeze on deep seeks unless the browser starts the request with a media fragment.
         setStatus('Recovering stream near requested scene...');
         const src = urlWithTimeFragment(state.videoUrl, target);
@@ -1002,12 +1173,14 @@
 
   async function loadUrl(url, opts = {}) {
     url = String(url || '').trim(); if (!url) return;
-    state.videoUrl = url;
+    const originalUrl = url;
+    state.videoUrl = originalUrl;
     state.isSeeking = false;
     state.hlsReady = false;
-    if (!url.startsWith('blob:')) localStorage.setItem('jm_video_url', state.videoUrl);
+    state.usingCachedVideo = false;
+    if (!originalUrl.startsWith('blob:')) localStorage.setItem('jm_video_url', state.videoUrl);
     closeModal('urlModal');
-    const yt = extractYtId(url);
+    const yt = extractYtId(originalUrl);
     el.emptyVideo.classList.add('hidden');
     if (yt) return loadYouTube(yt);
     state.playerType = 'html5';
@@ -1017,16 +1190,20 @@
     el.movie.preload = 'auto';
     el.movie.playsInline = true;
     setStatus('Loading video...');
-    if (/\.m3u8(?:[?#]|$)/i.test(url)) await attachHls(url);
+
+    let playbackUrl = originalUrl;
+    if (opts.useCache !== false && !originalUrl.startsWith('blob:')) playbackUrl = await cachedPlaybackUrl(originalUrl, opts);
+
+    if (/\.m3u8(?:[?#]|$)/i.test(playbackUrl)) await attachHls(playbackUrl);
     else {
       try { el.movie.pause(); } catch {}
-      el.movie.src = url;
+      el.movie.src = playbackUrl;
       try { el.movie.load(); } catch {}
       await waitForEvent(el.movie, ['loadedmetadata','canplay'], 4500, () => el.movie.readyState >= 1);
       if (opts.autoplay !== false) playMediaElement();
     }
     el.movie.playbackRate = state.speed;
-    setStatus('Video loaded');
+    if (!state.usingCachedVideo) setStatus('Video loaded');
   }
 
   function extractYtId(url) { const m = String(url).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/); return m?.[1] || null; }
@@ -1143,7 +1320,10 @@
   $('menuSaveCloud').onclick = saveLessonToCloud;
   $('menuCloudLibrary').onclick = showCloudLibrary;
   if ($('menuRecoverVideo')) $('menuRecoverVideo').onclick = () => { openMenu(false); recoverVideoPlayback(); };
-  $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); localStorage.removeItem('jm_video_url'); localStorage.removeItem('jm_last_lesson_saved_at'); state.videoUrl=''; state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; state.repeatStart=-1; state.repeatEnd=-1; try { el.movie.pause(); el.movie.removeAttribute('src'); el.movie.load(); } catch {} el.movie.classList.add('hidden'); el.ytHost.classList.add('hidden'); el.emptyVideo.classList.remove('hidden'); state.playerType='none'; renderList(0); updateDock(null); setStatus('New lesson'); openMenu(false); } };
+  if ($('menuCacheVideo')) $('menuCacheVideo').onclick = () => { openMenu(false); cacheCurrentVideo(); };
+  if ($('menuUseCache')) $('menuUseCache').onclick = () => { openMenu(false); useCachedVideo(); };
+  if ($('menuClearCache')) $('menuClearCache').onclick = () => { openMenu(false); clearCurrentVideoCache(); };
+  $('menuClear').onclick = () => { if(confirm('Start a new lesson?')) { localStorage.removeItem('jm_subtitles'); localStorage.removeItem('jm_video_url'); localStorage.removeItem('jm_last_lesson_saved_at'); state.videoUrl=''; state.subtitles=[]; state.activeIndex=-1; state.lastIndex=-1; state.repeatStart=-1; state.repeatEnd=-1; try { el.movie.pause(); el.movie.removeAttribute('src'); el.movie.load(); } catch {} if (state.videoBlobUrl) { try { URL.revokeObjectURL(state.videoBlobUrl); } catch {} state.videoBlobUrl=''; } state.usingCachedVideo=false; el.movie.classList.add('hidden'); el.ytHost.classList.add('hidden'); el.emptyVideo.classList.remove('hidden'); state.playerType='none'; renderList(0); updateDock(null); setStatus('New lesson'); openMenu(false); } };
   $('speedBtn').onclick = () => { const opts=[.5,.75,1,1.25,1.5,2]; state.speed = opts[(opts.indexOf(state.speed)+1)%opts.length] || 1; if (state.playerType === 'html5') el.movie.playbackRate = state.speed; if (state.yt?.setPlaybackRate) state.yt.setPlaybackRate(state.speed); updateControls(); debounceSave(); };
   $('syncMinus').onclick = () => { state.offset -= .25; updateControls(); debounceSave(); };
   $('syncPlus').onclick = () => { state.offset += .25; updateControls(); debounceSave(); };
