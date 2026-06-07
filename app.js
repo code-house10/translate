@@ -17,11 +17,15 @@
     repeatStart: -1,
     repeatEnd: -1,
     repeatGuardUntil: 0,
+    repeatWaiting: false,
+    repeatTimer: null,
+    repeatDelaySeconds: Math.min(5, Math.max(1, Number(localStorage.getItem('jm_repeat_delay') || 1))),
     listCenter: 0,
     renderRadius: 28,
     savedWords: readJSON('jm_saved_words', []),
     savedLines: readJSON('jm_saved_lines', []),
     currentDictWord: '',
+    currentDictExamples: [],
     saveTimer: null,
     syncTicker: null,
     cloudClient: null,
@@ -47,7 +51,7 @@
     movie: $('moviePlayer'), videoBox: $('videoBox'), emptyVideo: $('emptyVideo'), ytHost: $('ytHost'),
     subtitleDock: $('subtitleDock'), dockEn: $('dockEn'), dockAr: $('dockAr'), statusText: $('statusText'),
     subtitleList: $('subtitleList'), listInfo: $('listInfo'), menuSheet: $('menuSheet'), menuStatus: $('menuStatus'),
-    syncValue: $('syncValue'), speedBtn: $('speedBtn'), autoPauseBtn: $('autoPauseBtn'), toast: $('toast')
+    syncValue: $('syncValue'), speedBtn: $('speedBtn'), autoPauseBtn: $('autoPauseBtn'), repeatDelayValue: $('repeatDelayValue'), toast: $('toast')
   };
 
   function readJSON(key, fallback) { try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; } }
@@ -57,6 +61,7 @@
     localStorage.setItem('jm_subtitles', JSON.stringify(state.subtitles));
     localStorage.setItem('jm_sync', String(state.offset));
     localStorage.setItem('jm_speed', String(state.speed));
+    localStorage.setItem('jm_repeat_delay', String(state.repeatDelaySeconds));
     // Keep last lesson open on next visit. Browser blob: URLs cannot be restored after reload,
     // so only permanent video links are saved automatically.
     localStorage.setItem('jm_video_url', state.videoUrl && !String(state.videoUrl).startsWith('blob:') ? state.videoUrl : '');
@@ -195,6 +200,7 @@
       ar: word.ar || '',
       contextEn: word.contextEn || '',
       contextAr: word.contextAr || '',
+      examples: Array.isArray(word.examples) ? word.examples : [],
       sourceLineKey: word.sourceLineKey || '',
       startTime: Number(word.startTime || 0),
       savedAt: word.savedAt || now,
@@ -665,11 +671,10 @@
         return;
       }
 
-      if (state.repeatStart >= 0 && state.repeatEnd >= 0 && now > state.repeatGuardUntil) {
+      if (state.repeatStart >= 0 && state.repeatEnd >= 0 && now > state.repeatGuardUntil && !state.repeatWaiting) {
         const end = state.subtitles[state.repeatEnd]?.endTime ?? 0;
         if (mediaTime >= end) {
-          state.repeatGuardUntil = now + 1200;
-          seekMedia(state.subtitles[state.repeatStart].startTime, true);
+          beginRepeatDelay();
         }
       }
 
@@ -696,6 +701,24 @@
   }
 
   function pauseMedia() { if (state.playerType === 'html5') el.movie.pause(); if (state.playerType === 'youtube' && state.yt?.pauseVideo) state.yt.pauseVideo(); }
+  function playMedia() { if (state.playerType === 'html5') el.movie.play().catch(()=>{}); if (state.playerType === 'youtube' && state.yt?.playVideo) state.yt.playVideo(); }
+
+  function beginRepeatDelay() {
+    if (state.repeatWaiting || state.repeatStart < 0 || state.repeatEnd < 0 || !state.subtitles[state.repeatStart]) return;
+    const gapMs = Math.min(5, Math.max(1, Number(state.repeatDelaySeconds || 1))) * 1000;
+    state.repeatWaiting = true;
+    state.repeatGuardUntil = performance.now() + gapMs + 900;
+    pauseMedia();
+    setStatus(`Repeat pause ${state.repeatDelaySeconds}s...`);
+    clearTimeout(state.repeatTimer);
+    state.repeatTimer = setTimeout(() => {
+      state.repeatWaiting = false;
+      if (state.repeatStart >= 0 && state.repeatEnd >= 0 && state.subtitles[state.repeatStart]) {
+        seekMedia(state.subtitles[state.repeatStart].startTime, true);
+        state.repeatGuardUntil = performance.now() + 900;
+      }
+    }, gapMs);
+  }
 
   function renderList(center = state.listCenter) {
     state.listCenter = Math.max(0, Math.min(center, state.subtitles.length - 1));
@@ -772,6 +795,8 @@
     end = Math.max(0, Math.min(Number(end), state.subtitles.length - 1));
     state.repeatStart = Math.min(start, end);
     state.repeatEnd = Math.max(start, end);
+    state.repeatWaiting = false;
+    clearTimeout(state.repeatTimer);
     state.repeatGuardUntil = performance.now() + 300;
     renderList(currentSubtitleIndex() >= 0 ? currentSubtitleIndex() : state.repeatStart);
     updateDockRepeatButtons();
@@ -807,6 +832,8 @@
   function stopRepeat() {
     state.repeatStart = -1;
     state.repeatEnd = -1;
+    state.repeatWaiting = false;
+    clearTimeout(state.repeatTimer);
     updateDockRepeatButtons();
     renderList(currentSubtitleIndex() >= 0 ? currentSubtitleIndex() : state.listCenter);
     toast('Repeat off');
@@ -973,6 +1000,7 @@
       existing.kind = normalizedPayload.kind;
       existing.contextEn = existing.contextEn || normalizedPayload.contextEn || '';
       existing.contextAr = existing.contextAr || normalizedPayload.contextAr || '';
+      if ((!existing.examples || !existing.examples.length) && normalizedPayload.examples?.length) existing.examples = normalizedPayload.examples;
       existing.sourceLineKey = existing.sourceLineKey || normalizedPayload.sourceLineKey || '';
       existing.startTime = existing.startTime || normalizedPayload.startTime || 0;
       Object.assign(existing, normalizeSavedWord(existing));
@@ -1046,6 +1074,7 @@
     const item = state.subtitles[idx];
     const contextEn = item ? cleanLine(item.en) : '';
     state.currentDictWord = word;
+    state.currentDictExamples = [];
     $('dictWord').textContent = word;
     $('dictTranslation').textContent = 'Searching...';
     $('dictContext').innerHTML = idx >= 0 && item ? wordHtml(item.en, -1) : '';
@@ -1057,7 +1086,7 @@
     openModal('dictModal');
     speak(word);
     $('dictPlayPhraseBtn').onclick = () => openPlayPhrase(word);
-    $('dictSaveBtn').onclick = () => saveWord(word, $('dictTranslation').textContent || '', { kind: 'word', contextEn, contextAr: item?.ar || '', sourceLineKey: item ? lineKey(item) : '', startTime: item?.startTime || 0 });
+    $('dictSaveBtn').onclick = () => saveWord(word, $('dictTranslation').textContent || '', { kind: 'word', contextEn, contextAr: item?.ar || '', sourceLineKey: item ? lineKey(item) : '', startTime: item?.startTime || 0, examples: state.currentDictExamples || [] });
     $('dictSpeakBtn').onclick = () => speak(word);
     try { $('dictTranslation').textContent = await translateMyMemory(word); } catch { $('dictTranslation').textContent = 'Translation failed'; }
     try {
@@ -1068,9 +1097,11 @@
       if (!topExamples.length) throw new Error('No examples');
       $('dictExamples').innerHTML = '<div class="example">Translating examples...</div>';
       const rows = [];
+      state.currentDictExamples = [];
       for (const ex of topExamples) {
         let ar = '';
         try { ar = await translateMyMemory(ex); } catch {}
+        state.currentDictExamples.push({ en: ex, ar: ar || '' });
         rows.push(`<div class="example"><p class="ex-en" dir="ltr">${escapeHtml(ex)}</p><p class="ex-ar" dir="rtl">${escapeHtml(ar || 'تعذر ترجمة المثال')}</p></div>`);
       }
       $('dictExamples').innerHTML = rows.join('');
@@ -1086,10 +1117,31 @@
     state.savedLines = state.savedLines.map(normalizeSavedLine);
     const wordItems = isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind !== 'phrase');
     const arr = (isWords || isPhrases) ? wordItems : state.savedLines;
-    body.innerHTML = arr.length ? arr.map((x, i) => (isWords || isPhrases)
-      ? `<div class="saved-item ${x.kind === 'phrase' ? 'phrase-item' : ''}"><span class="saved-type-chip">${x.kind === 'phrase' ? 'Phrase' : 'Word'}</span><b dir="ltr">${escapeHtml(x.word)}</b><p>${escapeHtml(x.ar || '')}</p>${x.contextEn ? `<div class="saved-context" dir="ltr">${escapeHtml(x.contextEn)}</div>` : ''}${x.contextAr ? `<div class="saved-context ar" dir="rtl">${escapeHtml(x.contextAr)}</div>` : ''}<div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${state.savedWords.indexOf(x)}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`
-      : `<div class="saved-item"><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-saved-play="${i}">Play</button><button class="small-btn" data-pp-line="${i}">PlayPhrase</button><button class="small-btn" data-review-one="line:${i}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`).join('')
-      : '<p>No saved items yet.</p>';
+    const countLabel = isPhrases ? 'phrases' : (isWords ? 'words' : 'lines');
+    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small></div>`;
+    if (!arr.length) { body.innerHTML = header + '<p>No saved items yet.</p>'; openModal('savedModal'); return; }
+    body.innerHTML = header + arr.map((x, i) => {
+      if (isWords || isPhrases) {
+        const originalIndex = state.savedWords.indexOf(x);
+        const examples = Array.isArray(x.examples) && x.examples.length ? `<div class="saved-section"><b>Examples</b>${x.examples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''}">
+          <summary><span class="saved-type-chip">${x.kind === 'phrase' ? 'Phrase' : 'Word'}</span><b dir="ltr">${escapeHtml(x.word)}</b><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></summary>
+          <div class="saved-detail-body">
+            ${x.ar ? `<div class="saved-section"><b>Meaning</b><p dir="rtl">${escapeHtml(x.ar)}</p></div>` : ''}
+            ${x.contextEn ? `<div class="saved-section"><b>Movie context</b><p dir="ltr">${escapeHtml(x.contextEn)}</p>${x.contextAr ? `<p dir="rtl" class="ar">${escapeHtml(x.contextAr)}</p>` : ''}</div>` : ''}
+            ${examples}
+            <div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
+          </div>
+        </details>`;
+      }
+      return `<details class="saved-details">
+        <summary><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></summary>
+        <div class="saved-detail-body">
+          ${x.ar ? `<div class="saved-section"><b>Arabic translation</b><p dir="rtl">${escapeHtml(x.ar)}</p></div>` : ''}
+          <div class="saved-actions"><button class="small-btn" data-saved-play="${i}">Play</button><button class="small-btn" data-pp-line="${i}">PlayPhrase</button><button class="small-btn" data-review-one="line:${i}">Review</button></div>
+        </div>
+      </details>`;
+    }).join('');
     openModal('savedModal');
   }
 
@@ -1420,7 +1472,7 @@
   function openMenu(show=true) { el.menuSheet.classList.toggle('hidden', !show); }
   function openModal(id) { $(id).classList.remove('hidden'); }
   function closeModal(id) { $(id).classList.add('hidden'); }
-  function updateControls() { el.syncValue.textContent = `${state.offset.toFixed(2)}s`; el.speedBtn.textContent = `${state.speed.toFixed(1)}x`; el.autoPauseBtn.textContent = state.autoPause ? 'On' : 'Off'; }
+  function updateControls() { el.syncValue.textContent = `${state.offset.toFixed(2)}s`; el.speedBtn.textContent = `${state.speed.toFixed(1)}x`; el.autoPauseBtn.textContent = state.autoPause ? 'On' : 'Off'; if (el.repeatDelayValue) el.repeatDelayValue.textContent = `${state.repeatDelaySeconds}s`; }
 
   async function loadUrl(url, opts = {}) {
     url = String(url || '').trim(); if (!url) return;
@@ -1585,6 +1637,8 @@
   $('speedBtn').onclick = () => { const opts=[.5,.75,1,1.25,1.5,2]; state.speed = opts[(opts.indexOf(state.speed)+1)%opts.length] || 1; if (state.playerType === 'html5') el.movie.playbackRate = state.speed; if (state.yt?.setPlaybackRate) state.yt.setPlaybackRate(state.speed); updateControls(); debounceSave(); };
   $('syncMinus').onclick = () => { state.offset -= .25; updateControls(); debounceSave(); };
   $('syncPlus').onclick = () => { state.offset += .25; updateControls(); debounceSave(); };
+  if ($('repeatDelayMinus')) $('repeatDelayMinus').onclick = () => { state.repeatDelaySeconds = Math.max(1, Number(state.repeatDelaySeconds || 1) - 1); updateControls(); debounceSave(); toast(`Repeat pause: ${state.repeatDelaySeconds}s`); };
+  if ($('repeatDelayPlus')) $('repeatDelayPlus').onclick = () => { state.repeatDelaySeconds = Math.min(5, Number(state.repeatDelaySeconds || 1) + 1); updateControls(); debounceSave(); toast(`Repeat pause: ${state.repeatDelaySeconds}s`); };
   $('autoPauseBtn').onclick = () => { state.autoPause = !state.autoPause; updateControls(); };
   $('goActiveBtn').onclick = () => jumpToCard(currentSubtitleIndex() >= 0 ? currentSubtitleIndex() : 0);
   el.subtitleDock.onclick = () => jumpToCard(currentSubtitleIndex());
