@@ -26,6 +26,10 @@
     syncTicker: null,
     cloudClient: null,
     cloudLessons: [],
+    cloudSyncTimer: null,
+    cloudSyncInProgress: false,
+    cloudSyncPending: false,
+    cloudLastSyncAt: localStorage.getItem('jm_cloud_last_sync_at') || '',
     reviewQueue: [],
     reviewIndex: 0,
     reviewRevealed: false,
@@ -203,6 +207,62 @@
   }
 
   function loadScript(src) { return new Promise((resolve, reject) => { const existing = [...document.scripts].find(s => s.src === src); if (existing) return resolve(); const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = reject; document.head.appendChild(s); }); }
+
+
+
+  function savedWordMergeKey(item) {
+    const kind = String(item?.kind || 'word').toLowerCase();
+    return `${kind}:${String(item?.word || '').trim().toLowerCase()}`;
+  }
+
+  function savedLineMergeKey(item) {
+    return String(item?.key || lineKey(item) || `${Math.round((item?.startTime || 0) * 1000)}:${cleanLine(item?.en || '').slice(0, 80).toLowerCase()}`);
+  }
+
+  function itemDateValue(item) {
+    const raw = item?.updatedAt || item?.lastReviewedAt || item?.savedAt || item?.createdAt || '';
+    const t = raw ? Date.parse(raw) : 0;
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  function mergeByKey(localArr, remoteArr, keyFn, normalizeFn) {
+    const map = new Map();
+    const put = (item, source) => {
+      const normalized = normalizeFn(item);
+      const key = keyFn(normalized);
+      if (!key || key === 'word:' || key === 'phrase:') return;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { ...normalized, _source: source });
+        return;
+      }
+      const existingDate = itemDateValue(existing);
+      const incomingDate = itemDateValue(normalized);
+      const chosen = incomingDate >= existingDate
+        ? { ...existing, ...normalized }
+        : { ...normalized, ...existing };
+      // Preserve review metadata conservatively so progress is not lost.
+      chosen.reviewCount = Math.max(Number(existing.reviewCount || 0), Number(normalized.reviewCount || 0));
+      chosen.knownCount = Math.max(Number(existing.knownCount || 0), Number(normalized.knownCount || 0));
+      const dueA = existing.dueAt ? Date.parse(existing.dueAt) : 0;
+      const dueB = normalized.dueAt ? Date.parse(normalized.dueAt) : 0;
+      if (dueA && dueB) chosen.dueAt = dueA <= dueB ? existing.dueAt : normalized.dueAt;
+      else chosen.dueAt = existing.dueAt || normalized.dueAt || chosen.dueAt;
+      map.set(key, chosen);
+    };
+    (remoteArr || []).forEach(x => put(x, 'remote'));
+    (localArr || []).forEach(x => put(x, 'local'));
+    return [...map.values()].map(({_source, ...x}) => normalizeFn(x));
+  }
+
+  function normalizeLibraryState() {
+    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
+    state.savedLines = state.savedLines.map(normalizeSavedLine).filter(x => x.en || x.ar);
+  }
+
+  function cloudSyncLabel() {
+    return state.cloudLastSyncAt ? `Last cloud sync: ${new Date(state.cloudLastSyncAt).toLocaleString()}` : 'Not synced yet';
+  }
 
   const VIDEO_CACHE_DB = 'jungle_movie_video_cache_v1';
   const VIDEO_CACHE_STORE = 'videos';
@@ -1150,34 +1210,94 @@
     return state.cloudClient;
   }
 
-  let cloudSyncTimer = null;
   function scheduleCloudLibrarySync() {
-    clearTimeout(cloudSyncTimer);
-    cloudSyncTimer = setTimeout(() => upsertCloudUserLibrary(true), 1200);
+    clearTimeout(state.cloudSyncTimer);
+    state.cloudSyncTimer = setTimeout(() => syncSavedItemsToCloud({ silent: true, reason: 'auto' }), 900);
   }
 
-  async function upsertCloudUserLibrary(silent = true) {
+  async function syncSavedItemsToCloud({ silent = true, reason = 'manual' } = {}) {
+    if (state.cloudSyncInProgress) {
+      state.cloudSyncPending = true;
+      return false;
+    }
+    state.cloudSyncInProgress = true;
     try {
+      normalizeLibraryState();
       const sb = await getCloudClient();
-      const payload = { user_code: CLOUD_CONFIG.userCode, saved_phrases: state.savedLines.map(normalizeSavedLine), saved_words: state.savedWords.map(normalizeSavedWord), updated_at: new Date().toISOString() };
+      const payload = {
+        user_code: CLOUD_CONFIG.userCode,
+        saved_phrases: state.savedLines.map(normalizeSavedLine),
+        saved_words: state.savedWords.map(normalizeSavedWord),
+        updated_at: new Date().toISOString()
+      };
       const { error } = await sb.from('user_library').upsert(payload, { onConflict: 'user_code' });
       if (error) throw error;
-      if (!silent) toast('Saved lines synced');
-    } catch (e) { if (!silent) toast('Cloud sync failed'); console.warn(e); }
+      state.cloudLastSyncAt = payload.updated_at;
+      localStorage.setItem('jm_cloud_last_sync_at', state.cloudLastSyncAt);
+      if (!silent) {
+        setStatus(`Saved items synced to Supabase • ${state.savedWords.length} words/phrases • ${state.savedLines.length} lines`);
+        toast('Saved items synced to cloud');
+      } else if (reason === 'auto') {
+        setStatus(`Auto-synced saved items • ${state.savedWords.length + state.savedLines.length} cards`);
+      }
+      return true;
+    } catch (e) {
+      console.warn('Cloud sync failed:', e);
+      if (!silent) {
+        toast('Cloud sync failed');
+        alert('Cloud sync failed: ' + (e.message || e));
+      }
+      return false;
+    } finally {
+      state.cloudSyncInProgress = false;
+      if (state.cloudSyncPending) {
+        state.cloudSyncPending = false;
+        scheduleCloudLibrarySync();
+      }
+    }
   }
 
-  async function loadCloudUserLibrary() {
+  async function loadSavedItemsFromCloud({ silent = true, merge = true } = {}) {
     try {
       const sb = await getCloudClient();
-      const { data, error } = await sb.from('user_library').select('saved_phrases,saved_words').eq('user_code', CLOUD_CONFIG.userCode).maybeSingle();
+      const { data, error } = await sb.from('user_library').select('saved_phrases,saved_words,updated_at').eq('user_code', CLOUD_CONFIG.userCode).maybeSingle();
       if (error) throw error;
       if (data) {
-        state.savedLines = Array.isArray(data.saved_phrases) ? data.saved_phrases.map(normalizeSavedLine) : state.savedLines;
-        state.savedWords = Array.isArray(data.saved_words) ? data.saved_words.map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
-        writeJSON('jm_saved_lines', state.savedLines); writeJSON('jm_saved_words', state.savedWords);
+        const remoteLines = Array.isArray(data.saved_phrases) ? data.saved_phrases : [];
+        const remoteWords = Array.isArray(data.saved_words) ? data.saved_words : [];
+        if (merge) {
+          state.savedLines = mergeByKey(state.savedLines, remoteLines, savedLineMergeKey, normalizeSavedLine);
+          state.savedWords = mergeByKey(state.savedWords, remoteWords, savedWordMergeKey, normalizeSavedWord).filter(x => x.word);
+        } else {
+          state.savedLines = remoteLines.map(normalizeSavedLine);
+          state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word);
+        }
+        writeJSON('jm_saved_lines', state.savedLines);
+        writeJSON('jm_saved_words', state.savedWords);
+        saveState();
+        state.cloudLastSyncAt = data.updated_at || new Date().toISOString();
+        localStorage.setItem('jm_cloud_last_sync_at', state.cloudLastSyncAt);
+        if (!silent) {
+          setStatus(`Loaded saved items from Supabase • ${state.savedWords.length} words/phrases • ${state.savedLines.length} lines`);
+          toast('Saved items loaded from cloud');
+        }
+        return true;
       }
-    } catch (e) { console.warn(e); }
+      if (!silent) toast('No saved items in cloud yet');
+      return false;
+    } catch (e) {
+      console.warn('Cloud load failed:', e);
+      if (!silent) {
+        toast('Cloud load failed');
+        alert('Cloud load failed: ' + (e.message || e));
+      }
+      return false;
+    }
   }
+
+  // Backward-compatible names used elsewhere in the app.
+  const upsertCloudUserLibrary = (silent = true) => syncSavedItemsToCloud({ silent, reason: 'compat' });
+  const loadCloudUserLibrary = () => loadSavedItemsFromCloud({ silent: true, merge: true });
 
   function buildCurrentSrtText() {
     return state.subtitles.map((item, i) => `${i + 1}\n${secondsToSrtTime(item.startTime)} --> ${secondsToSrtTime(item.endTime)}\n${cleanLine(item.en)}${item.ar ? '\n' + cleanLine(item.ar) : ''}`).join('\n\n');
@@ -1212,14 +1332,14 @@
   async function showCloudLibrary() {
     openMenu(false);
     $('savedTitle').textContent = 'Cloud library';
-    $('savedBody').innerHTML = '<p>Loading cloud lessons...</p>';
+    $('savedBody').innerHTML = `<p>Loading cloud lessons...</p><p class="cloud-sync-hint">${escapeHtml(cloudSyncLabel())}</p>`;
     openModal('savedModal');
     try {
       const sb = await getCloudClient();
       const { data, error } = await sb.from('lessons').select('id,title,video_url,video_type,sync,dialogue,saved_phrases,saved_words,subtitle_text,created_at').eq('user_code', CLOUD_CONFIG.userCode).order('created_at', { ascending:false });
       if (error) throw error;
       state.cloudLessons = data || [];
-      $('savedBody').innerHTML = state.cloudLessons.length ? state.cloudLessons.map((l,i)=>`<div class="saved-item cloud-lesson"><b>${escapeHtml(l.title || 'Untitled')}</b><p dir="ltr">${escapeHtml(l.video_url || 'No video link')}</p><small>${new Date(l.created_at).toLocaleString()} • ${Array.isArray(l.dialogue) ? l.dialogue.length : 0} lines</small><div class="saved-actions"><button class="small-btn" data-cloud-load="${i}">Open</button><button class="small-btn" data-cloud-edit="${i}">Edit</button><button class="small-btn danger" data-cloud-delete="${i}">Delete</button></div></div>`).join('') : '<p>No cloud lessons yet.</p>';
+      $('savedBody').innerHTML = `<div class="saved-item cloud-tools"><b>Saved items sync</b><p>${escapeHtml(cloudSyncLabel())}</p><div class="saved-actions"><button class="small-btn" data-sync-saved-cloud>Sync saved now</button><button class="small-btn" data-load-saved-cloud>Load saved</button></div><small>Words, phrases, saved lines, translations, context, and review progress are stored in Supabase user_library.</small></div>` + (state.cloudLessons.length ? state.cloudLessons.map((l,i)=>`<div class="saved-item cloud-lesson"><b>${escapeHtml(l.title || 'Untitled')}</b><p dir="ltr">${escapeHtml(l.video_url || 'No video link')}</p><small>${new Date(l.created_at).toLocaleString()} • ${Array.isArray(l.dialogue) ? l.dialogue.length : 0} lines</small><div class="saved-actions"><button class="small-btn" data-cloud-load="${i}">Open</button><button class="small-btn" data-cloud-edit="${i}">Edit</button><button class="small-btn danger" data-cloud-delete="${i}">Delete</button></div></div>`).join('') : '<p>No cloud lessons yet.</p>');
     } catch (e) { console.error(e); $('savedBody').innerHTML = '<p>Cloud load failed.</p>'; }
   }
 
@@ -1292,7 +1412,7 @@
     state.savedLines = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases.map(normalizeSavedLine) : state.savedLines;
     state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words.map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
     state.offset = Number(lesson.sync || 0); state.activeIndex = -1; state.lastIndex = -1; state.listCenter = 0; state.videoUrl = lesson.video_url || '';
-    saveState(); updateControls(); renderList(0); closeModal('savedModal');
+    saveState(); scheduleCloudLibrarySync(); updateControls(); renderList(0); closeModal('savedModal');
     if (state.videoUrl) await loadUrl(state.videoUrl);
     toast('Lesson restored');
   }
@@ -1429,6 +1549,8 @@
     const ppLine = e.target.closest('[data-pp-line]'); if (ppLine) { const item = state.savedLines[Number(ppLine.dataset.ppLine)]; if (item) openPlayPhrase(cleanLine(item.en)); return; }
     const reviewOne = e.target.closest('[data-review-one]'); if (reviewOne) { const [type, index] = reviewOne.dataset.reviewOne.split(':'); showSingleReviewCard(type, index); return; }
     const savedPlay = e.target.closest('[data-saved-play]'); if (savedPlay) { const item = state.savedLines[Number(savedPlay.dataset.savedPlay)]; if (item) { const idx = state.subtitles.findIndex(s => lineKey(s) === item.key || Math.abs((s.startTime||0)-(item.startTime||0)) < .08); closeModal('savedModal'); if (idx >= 0) { renderList(idx); seekMedia(state.subtitles[idx].startTime, true); jumpToCard(idx); } else toast('Open the original lesson first'); } return; }
+    const syncSavedCloudBtn = e.target.closest('[data-sync-saved-cloud]'); if (syncSavedCloudBtn) { syncSavedItemsToCloud({ silent: false, reason: 'manual' }); return; }
+    const loadSavedCloudBtn = e.target.closest('[data-load-saved-cloud]'); if (loadSavedCloudBtn) { loadSavedItemsFromCloud({ silent: false, merge: true }).then(() => { showSaved('lines'); }); return; }
     const cloudLoad = e.target.closest('[data-cloud-load]'); if (cloudLoad) { loadCloudLesson(cloudLoad.dataset.cloudLoad); return; }
     const cloudEdit = e.target.closest('[data-cloud-edit]'); if (cloudEdit) { editCloudLesson(cloudEdit.dataset.cloudEdit); return; }
     const cloudDelete = e.target.closest('[data-cloud-delete]'); if (cloudDelete) { deleteCloudLesson(cloudDelete.dataset.cloudDelete); return; }
@@ -1452,6 +1574,8 @@
   $('menuSavedLines').onclick = () => { openMenu(false); showSaved('lines'); };
   $('menuReviewCards').onclick = showReviewCards;
   $('menuSaveCloud').onclick = saveLessonToCloud;
+  if ($('menuSyncSavedCloud')) $('menuSyncSavedCloud').onclick = () => { openMenu(false); syncSavedItemsToCloud({ silent: false, reason: 'manual' }); };
+  if ($('menuLoadSavedCloud')) $('menuLoadSavedCloud').onclick = () => { openMenu(false); loadSavedItemsFromCloud({ silent: false, merge: true }).then(() => showSaved('lines')); };
   $('menuCloudLibrary').onclick = showCloudLibrary;
   if ($('menuRecoverVideo')) $('menuRecoverVideo').onclick = () => { openMenu(false); recoverVideoPlayback(); };
   if ($('menuCacheVideo')) $('menuCacheVideo').onclick = () => { openMenu(false); cacheCurrentVideo(); };
@@ -1483,7 +1607,7 @@
 
   state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
   state.savedLines = state.savedLines.map(normalizeSavedLine);
-  loadCloudUserLibrary();
+  loadSavedItemsFromCloud({ silent: true, merge: true }).then(ok => { if (ok) setStatus(`Saved items ready from cloud • ${state.savedWords.length + state.savedLines.length} cards`); });
   const savedSubs = readJSON('jm_subtitles', []);
   const savedUrl = localStorage.getItem('jm_video_url') || '';
   if (savedSubs.length) {

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jungle Movie - Interactive Learner (No Duplicate Subtitles)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<style>
+/* Your existing CSS remains the same, no changes here */
+</style>
+</head>
+<body class="text-gray-800 antialiased overflow-x-hidden">
+
+<!-- Header and Toolbar code remains unchanged -->
+
+<!-- Video Player Section -->
+<div id="videoMainContainer">
+    <video id="moviePlayer" class="w-full h-full object-contain hidden" controls playsinline webkit-playsinline></video>
+    <div id="iframeContainer" class="w-full h-full hidden relative"></div>
+
+    <!-- Subtitle Overlay -->
+    <div id="videoSubtitleOverlay">
+        <div class="subtitle-box">
+            <p id="overlayEn"></p>
+            <p id="overlayAr"></p>
+        </div>
+    </div>
+
+    <!-- Synced Subtitle Panel Under Video -->
+    <div id="syncedSubtitlePanel">
+        <p id="syncedSubtitleEn"></p>
+        <p id="syncedSubtitleAr"></p>
+    </div>
+</div>
+
+<!-- Mobile Toolbar and Modals remain unchanged -->
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+// --- Core Variables ---
+let dialogueData = [];
+let currentActiveSubtitleIndex = -1;
+let subtitleOffset = 0;
+let savedPhrases = [];
+let flashcardDeck = [];
+let hlsPlayer = null;
+
+// --- Helper: Clear and Render Subtitles ---
+function renderDialogueCards() {
+    const container = document.getElementById('conversationList');
+    container.innerHTML = ''; // clear duplicates before rendering
+
+    dialogueData.forEach((d, i) => {
+        const card = document.createElement('div');
+        card.className = 'subtitle-card';
+        card.innerHTML = `
+            <p class="english-text">${d.en}
+                <button class="flashcard-btn" onclick="addFlashcard(${i})"><i class="fas fa-star"></i></button>
+            </p>
+            <p class="text-green-400">${d.ar}</p>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// --- Synced Subtitles ---
+function updateSyncedSubtitles(currentTime) {
+    let found = false;
+    dialogueData.forEach((d, i) => {
+        const start = d.startTime + subtitleOffset;
+        const end = d.endTime + subtitleOffset;
+        if (currentTime >= start && currentTime <= end) {
+            document.getElementById('syncedSubtitleEn').innerText = d.en;
+            document.getElementById('syncedSubtitleAr').innerText = d.ar;
+            currentActiveSubtitleIndex = i;
+            found = true;
+        }
+    });
+    if (!found) {
+        document.getElementById('syncedSubtitleEn').innerText = '';
+        document.getElementById('syncedSubtitleAr').innerText = '';
+        currentActiveSubtitleIndex = -1;
+    }
+}
+
+// --- Video Time Update ---
+document.getElementById('moviePlayer').addEventListener('timeupdate', function() {
+    updateSyncedSubtitles(this.currentTime);
+});
+
+// --- Flashcards ---
+function addFlashcard(index) {
+    const card = dialogueData[index];
+    if (!flashcardDeck.includes(card)) flashcardDeck.push(card);
+    alert('Added to flashcards ✅');
+}
+
+// --- Load HLS Video ---
+function loadVideo(url) {
+    const video = document.getElementById('moviePlayer');
+    if (hlsPlayer) {
+        hlsPlayer.destroy();
+        hlsPlayer = null;
+    }
+
+    if (Hls.isSupported() && /\.m3u8/.test(url)) {
+        hlsPlayer = new Hls();
+        hlsPlayer.loadSource(url);
+        hlsPlayer.attachMedia(video);
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+    } else {
+        video.src = url;
+        video.play();
+    }
+}
+
+// --- Example Usage ---
+dialogueData = [
+    {startTime: 0, endTime: 5, en: "Hello", ar: "مرحبا"},
+    {startTime: 5, endTime: 10, en: "How are you?", ar: "كيف حالك؟"}
+];
+renderDialogueCards();
+updateSyncedSubtitles(0);
+
+</script>
+</body>
+</html>
