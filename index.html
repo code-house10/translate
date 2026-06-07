@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Jungle Movie Lite</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">▶</span>
+        <div>
+          <h1>Jungle Movie Lite</h1>
+          <p id="statusText">Fast mobile learner</p>
+        </div>
+      </div>
+      <button id="menuBtn" class="icon-btn" aria-label="Menu">☰</button>
+    </header>
+
+    <section class="player-card" id="playerCard">
+      <div id="videoBox" class="video-box">
+        <div id="emptyVideo" class="empty-video">
+          <div class="empty-icon">🎬</div>
+          <b>Choose a video</b>
+          <small>MP4 / M3U8 / YouTube / Local file</small>
+        </div>
+        <video id="moviePlayer" class="movie-player hidden" controls playsinline webkit-playsinline preload="auto"></video>
+        <div id="ytHost" class="yt-host hidden"><div id="ytPlayer"></div></div>
+      </div>
+
+      <div id="subtitleDock" class="subtitle-dock hidden" role="button" tabindex="0">
+        <div class="dock-actions" onclick="event.stopPropagation()">
+          <button id="jumpCurrentBtn" title="Find current card">🎯 Card</button>
+          <button id="saveLineBtn" title="Save line">☆</button>
+          <button id="copyLineBtn" title="Copy line">⧉</button>
+          <button id="translateLineBtn" title="Translate line">AR</button>
+          <button id="playPhraseLineBtn" title="PlayPhrase line">PP</button>
+        </div>
+        <div class="dock-repeat-tools" onclick="event.stopPropagation()">
+          <button id="loopCurrentBtn" title="Repeat current subtitle">⟲ One</button>
+          <button id="loopStartBtn" title="Set current subtitle as loop start">A Start</button>
+          <button id="loopEndBtn" title="Set current subtitle as loop end">B End</button>
+          <button id="loopOffBtn" title="Stop repeat">× Off</button>
+        </div>
+        <div id="dockEn" class="dock-en"></div>
+        <div id="dockAr" class="dock-ar"></div>
+      </div>
+    </section>
+
+    <section class="quick-panel">
+      <label class="primary-pill">
+        <input id="videoFileInput" type="file" accept="video/*" hidden />
+        <span>Upload video</span>
+      </label>
+      <label class="primary-pill secondary">
+        <input id="subtitleFileInput" type="file" accept=".srt,.txt,.html,.htm" hidden />
+        <span>Upload SRT</span>
+      </label>
+      <button id="urlBtn" class="primary-pill ghost">Video URL</button>
+    </section>
+
+    <main class="content">
+      <div class="section-head">
+        <div>
+          <h2>Subtitles</h2>
+          <p id="listInfo">Upload SRT to start</p>
+        </div>
+        <button id="goActiveBtn" class="small-btn">Current</button>
+      </div>
+      <div id="subtitleList" class="subtitle-list"></div>
+    </main>
+  </div>
+
+  <div id="menuSheet" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-panel">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">
+        <b>Menu</b>
+        <button id="closeMenuBtn" class="icon-btn">×</button>
+      </div>
+      <div class="menu-grid">
+        <button id="menuUploadSrt">Upload / change SRT</button>
+        <button id="menuAzure">Translate all with Azure</button>
+        <button id="menuLaraAll">Translate all with Lara</button>
+        <button id="menuLaraSettings">Lara settings</button>
+        <button id="menuSavedWords">Saved words</button>
+        <button id="menuSavedPhrases">Saved phrases</button>
+        <button id="menuSavedLines">Saved lines</button>
+        <button id="menuReviewCards">Review cards</button>
+        <button id="menuSaveCloud">Save to cloud</button>
+        <button id="menuCloudLibrary">Cloud library</button>
+        <button id="menuRecoverVideo">Recover video</button>
+        <button id="menuCacheVideo">Cache video</button>
+        <button id="menuUseCache">Use cached video</button>
+        <button id="menuClearCache">Clear video cache</button>
+        <button id="menuClear">New lesson</button>
+      </div>
+      <div class="control-row">
+        <span>Speed</span>
+        <button id="speedBtn">1.0x</button>
+      </div>
+      <div class="control-row">
+        <span>Sync</span>
+        <div class="sync-controls">
+          <button id="syncMinus">-0.25</button>
+          <b id="syncValue">0.00s</b>
+          <button id="syncPlus">+0.25</button>
+        </div>
+      </div>
+      <div class="control-row">
+        <span>Auto-pause</span>
+        <button id="autoPauseBtn">Off</button>
+      </div>
+      <p id="menuStatus" class="menu-status"></p>
+    </div>
+  </div>
+
+  <div id="urlModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><b>Open video URL</b><button data-close-modal="urlModal">×</button></div>
+      <input id="videoUrlInput" class="text-input" dir="ltr" placeholder="https://...mp4 or YouTube URL" />
+      <button id="loadUrlBtn" class="full-btn">Play</button>
+    </div>
+  </div>
+
+  <div id="dictModal" class="modal hidden">
+    <div class="modal-card dict-card">
+      <div class="modal-head"><b id="dictWord">word</b><button data-close-modal="dictModal">×</button></div>
+      <p id="dictTranslation" class="dict-translation">...</p>
+      <div id="dictContext" class="dict-context"></div>
+      <div class="dict-actions">
+        <button id="dictSpeakBtn">🔊 Speak</button>
+        <button id="dictSaveBtn">☆ Save</button>
+        <button id="dictPlayPhraseBtn" class="purple">PlayPhrase</button>
+      </div>
+      <div id="dictPhrases" class="dict-phrases"></div>
+      <div id="dictExamples" class="dict-examples"></div>
+    </div>
+  </div>
+
+
+  <div id="laraModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head"><b>Lara Translate settings</b><button data-close-modal="laraModal">×</button></div>
+      <p class="settings-hint">Use Lara for natural subtitle-line translation. You can either save credentials here for this device or set Vercel environment variables: <b>LARA_ACCESS_KEY_ID</b> and <b>LARA_ACCESS_KEY_SECRET</b>.</p>
+      <input id="laraKeyIdInput" class="text-input" dir="ltr" placeholder="Lara Access Key ID" />
+      <input id="laraSecretInput" class="text-input" dir="ltr" type="password" placeholder="Lara Access Key Secret" />
+      <div class="settings-actions">
+        <button id="saveLaraSettingsBtn" class="full-btn">Save Lara</button>
+        <button id="clearLaraSettingsBtn" class="small-btn danger">Clear</button>
+      </div>
+      <p id="laraSettingsStatus" class="menu-status"></p>
+    </div>
+  </div>
+
+  <div id="savedModal" class="modal hidden">
+    <div class="modal-card tall-card">
+      <div class="modal-head"><b id="savedTitle">Saved</b><button data-close-modal="savedModal">×</button></div>
+      <div id="savedBody" class="saved-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="./app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>
