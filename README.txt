@@ -46,3 +46,10 @@ Video cache update:
 - Added a Service Worker to cache the app shell (HTML/CSS/JS) so the interface opens faster.
 - Video caching works best with direct MP4/WebM URLs that allow CORS downloads. It does not cache YouTube, HLS/M3U8, or temporary blob: local-file links.
 - Large movies may require device storage permission/space.
+
+
+Phrase chunks update:
+- Tap a word to see phrase chunks from the current subtitle, such as work out, get down, figure out.
+- Save phrase chunks with context-aware Arabic meaning for smart review.
+- Use the 🧩 icon under any subtitle card to auto-detect and save phrase chunks from that line.
+- Saved phrases are available from Menu -> Saved phrases and are included in Smart review cards.

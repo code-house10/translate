@@ -73,6 +73,81 @@
   function playphraseUrl(q) { return `https://www.playphrase.me/#/search?q=${encodeURIComponent(q).replace(/%20/g, '+')}`; }
   function openPlayPhrase(q) { if (!q) return; window.open(playphraseUrl(q), '_blank', 'noopener,noreferrer'); }
 
+  const PHRASAL_PARTICLES = new Set(['up','out','off','on','in','down','over','away','back','around','through','about','along','across','after','by','forward','together']);
+  const COMMON_PHRASES = [
+    'work out','figure out','find out','look up','look after','look for','look forward to','give up','give in','give back',
+    'get down','get up','get out','get in','get over','get away','get away with','get back','get through','get along',
+    'take off','take out','take over','take back','take down','pick up','put down','put up','put up with','come up','come up with',
+    'turn out','turn up','turn down','turn off','turn on','go on','go off','go back','go through','break down','break up',
+    'make up','make out','bring up','bring back','set up','hold on','keep up','keep on','keep out','keep away',
+    'keep my head down','keep your head down','keep his head down','keep her head down','keep their head down',
+    'fucked up','fuck up','mess up','calm down','slow down','knock it down','pay back','leave out','left out'
+  ];
+  const IRREGULAR_BASE = { worked:'work', working:'work', works:'work', figured:'figure', figuring:'figure', figures:'figure', found:'find', finding:'find', finds:'find', looked:'look', looking:'look', looks:'look', gave:'give', given:'give', giving:'give', gives:'give', got:'get', gotten:'get', getting:'get', gets:'get', took:'take', taken:'take', taking:'take', takes:'take', picked:'pick', picking:'pick', picks:'pick', put:'put', putting:'put', puts:'put', came:'come', coming:'come', comes:'come', turned:'turn', turning:'turn', turns:'turn', went:'go', gone:'go', going:'go', goes:'go', broke:'break', broken:'break', breaking:'break', breaks:'break', made:'make', making:'make', makes:'make', brought:'bring', bringing:'bring', brings:'bring', set:'set', setting:'set', sets:'set', held:'hold', holding:'hold', holds:'hold', kept:'keep', keeping:'keep', keeps:'keep', fucked:'fuck', fucking:'fuck', fucks:'fuck', messed:'mess', messing:'mess', messes:'mess', paid:'pay', paying:'pay', pays:'pay', left:'leave', leaving:'leave', leaves:'leave' };
+
+  function baseVerb(token) {
+    const t = String(token || '').toLowerCase();
+    if (IRREGULAR_BASE[t]) return IRREGULAR_BASE[t];
+    if (t.length > 5 && t.endsWith('ing')) return t.slice(0, -3);
+    if (t.length > 4 && t.endsWith('ed')) return t.slice(0, -2);
+    if (t.length > 4 && t.endsWith('s')) return t.slice(0, -1);
+    return t;
+  }
+
+  function detectPhrasesInLine(line, clickedWord = '') {
+    const lower = cleanLine(line).toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const clicked = String(clickedWord || '').toLowerCase();
+    const words = lower.match(/[a-z0-9']+/g) || [];
+    const found = new Map();
+    const add = (phrase, matched = '') => {
+      phrase = String(phrase || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!phrase || !phrase.includes(' ')) return;
+      if (clicked && !phrase.split(' ').some(w => w === clicked || baseVerb(w) === baseVerb(clicked))) return;
+      found.set(phrase, matched || phrase);
+    };
+    COMMON_PHRASES.forEach(p => {
+      const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\ /g, '\\s+');
+      const re = new RegExp(`\\b${escaped}\\b`, 'i');
+      if (re.test(lower)) add(p, p);
+    });
+    for (let i = 0; i < words.length - 1; i++) {
+      const first = baseVerb(words[i]);
+      const second = words[i + 1];
+      if (PHRASAL_PARTICLES.has(second)) add(`${first} ${second}`, `${words[i]} ${second}`);
+    }
+    for (let i = 0; i < words.length - 2; i++) {
+      const first = baseVerb(words[i]);
+      const second = words[i + 1];
+      const third = words[i + 2];
+      if (PHRASAL_PARTICLES.has(third) || ['with','to','for','of','from','at'].includes(third)) add(`${first} ${second} ${third}`, `${words[i]} ${second} ${third}`);
+    }
+    return [...found.entries()].map(([phrase, matched]) => ({ phrase, matched }));
+  }
+
+  async function translatePhraseInContext(phrase, contextEn = '') {
+    phrase = String(phrase || '').trim();
+    contextEn = cleanLine(contextEn);
+    if (!phrase) return '';
+    try {
+      const res = await fetch('/api/lara-translate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(getLaraPayload({
+          text: `Phrase: ${phrase}\nMovie context: ${contextEn}`,
+          instructions: [
+            'Return only the short natural Arabic meaning of the English phrase in this movie context.',
+            'Do not translate the whole context sentence.',
+            'Do not add explanations, labels, notes, or quotation marks.',
+            'Use concise Arabic suitable for a flashcard.'
+          ]
+        }))
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.translatedText) return String(data.translatedText).trim();
+    } catch (e) { console.warn('Lara phrase translation failed:', e); }
+    try { return await translateMyMemory(phrase); } catch { return ''; }
+  }
+
   const CLOUD_CONFIG = {
     url: 'https://gyybwibqkasakgwfpkxz.supabase.co',
     key: 'sb_publishable_ZvjDNnkXMcXMrmVQDdWQwg_mSJPKW8L',
@@ -107,11 +182,17 @@
   function normalizeSavedWord(word) {
     const now = new Date().toISOString();
     const cleanWord = String(word?.word || '').trim();
+    const kind = word?.kind === 'phrase' || /\s+/.test(cleanWord) ? 'phrase' : 'word';
     return {
       ...word,
+      kind,
       word: cleanWord,
       key: word.key || wordKey(cleanWord),
       ar: word.ar || '',
+      contextEn: word.contextEn || '',
+      contextAr: word.contextAr || '',
+      sourceLineKey: word.sourceLineKey || '',
+      startTime: Number(word.startTime || 0),
       savedAt: word.savedAt || now,
       dueAt: word.dueAt || now,
       intervalDays: Number(word.intervalDays || 0),
@@ -592,6 +673,7 @@
         <button type="button" class="action-icon copy" data-line-action="copy" data-index="${i}" aria-label="Copy line" title="Copy line">📋</button>
         <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line naturally with Lara" title="Translate naturally with Lara">🌐</button>
         <button type="button" class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
+        <button type="button" class="action-icon phrase" data-line-action="phrases" data-index="${i}" aria-label="Save phrase chunks" title="Save phrase chunks">🧩</button>
         <button type="button" class="action-icon playphrase" data-line-action="playphrase" data-index="${i}" aria-label="Search in PlayPhrase" title="Search in PlayPhrase">▶</button>
       </div>
     </article>`;
@@ -820,22 +902,55 @@
   }
 
   function speak(text) { try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang='en-US'; u.rate=.85; speechSynthesis.speak(u); } catch {} }
-  function saveWord(word, ar='') {
+  function saveWord(word, ar='', extra = {}) {
     word = String(word || '').trim();
     if (!word) return;
     const key = word.toLowerCase();
+    const normalizedPayload = normalizeSavedWord({ word, ar, savedAt: new Date().toISOString(), ...extra });
     const existing = state.savedWords.find(x => String(x.word || '').toLowerCase() === key);
     if (existing) {
-      existing.ar = existing.ar || ar || '';
+      existing.ar = existing.ar || normalizedPayload.ar || '';
+      existing.kind = normalizedPayload.kind;
+      existing.contextEn = existing.contextEn || normalizedPayload.contextEn || '';
+      existing.contextAr = existing.contextAr || normalizedPayload.contextAr || '';
+      existing.sourceLineKey = existing.sourceLineKey || normalizedPayload.sourceLineKey || '';
+      existing.startTime = existing.startTime || normalizedPayload.startTime || 0;
       Object.assign(existing, normalizeSavedWord(existing));
-      toast('Word already saved');
+      toast(normalizedPayload.kind === 'phrase' ? 'Phrase already saved' : 'Word already saved');
     } else {
-      state.savedWords.unshift(normalizeSavedWord({ word, ar, savedAt: new Date().toISOString() }));
-      toast('Word saved');
+      state.savedWords.unshift(normalizedPayload);
+      toast(normalizedPayload.kind === 'phrase' ? 'Phrase saved' : 'Word saved');
     }
     writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord));
+    debounceSave();
     scheduleCloudLibrarySync();
   }
+
+  async function savePhraseFromSubtitle(phrase, idx = state.lastIndex) {
+    phrase = String(phrase || '').trim().toLowerCase();
+    const item = state.subtitles[idx];
+    if (!phrase || !item) return;
+    setStatus(`Saving phrase: ${phrase}`);
+    const contextEn = cleanLine(item.en);
+    const contextAr = item.ar || '';
+    const ar = await translatePhraseInContext(phrase, contextEn);
+    saveWord(phrase, ar, { kind: 'phrase', contextEn, contextAr, sourceLineKey: lineKey(item), startTime: item.startTime || 0 });
+    setStatus('Phrase saved for smart review');
+  }
+
+  async function saveDetectedPhrasesFromLine(idx) {
+    const item = state.subtitles[idx];
+    if (!item) return;
+    const phrases = detectPhrasesInLine(item.en);
+    if (!phrases.length) return toast('No phrase chunks found in this line');
+    let saved = 0;
+    for (const p of phrases.slice(0, 6)) {
+      await savePhraseFromSubtitle(p.phrase, idx);
+      saved++;
+    }
+    toast(`${saved} phrase${saved === 1 ? '' : 's'} saved`);
+  }
+
   async function saveLine(idx, translateIfMissing = true) {
     const item = state.subtitles[idx]; if (!item) return;
     const key = lineKey(item);
@@ -866,10 +981,23 @@
   }
 
   async function openDict(word, idx = state.lastIndex) {
-    word = String(word || '').replace(/[^A-Za-zÀ-ÿ0-9'-]/g, ''); if (!word) return;
-    state.currentDictWord = word; $('dictWord').textContent = word; $('dictTranslation').textContent = 'Searching...'; $('dictContext').innerHTML = idx >= 0 ? wordHtml(state.subtitles[idx].en, -1) : ''; $('dictExamples').innerHTML = ''; openModal('dictModal'); speak(word);
+    word = String(word || '').replace(/[^A-Za-zÀ-ÿ0-9'-]/g, '').trim();
+    if (!word) return;
+    const item = state.subtitles[idx];
+    const contextEn = item ? cleanLine(item.en) : '';
+    state.currentDictWord = word;
+    $('dictWord').textContent = word;
+    $('dictTranslation').textContent = 'Searching...';
+    $('dictContext').innerHTML = idx >= 0 && item ? wordHtml(item.en, -1) : '';
+    if ($('dictPhrases')) {
+      const phrases = item ? detectPhrasesInLine(item.en, word) : [];
+      $('dictPhrases').innerHTML = phrases.length ? `<div class="phrase-suggestions"><b>🧩 Phrases in this line</b><p>Save the full chunk with its movie-context meaning.</p>${phrases.map(p => `<button class="phrase-save-btn" data-save-phrase="${escapeHtml(p.phrase)}" data-index="${idx}">★ ${escapeHtml(p.phrase)}</button>`).join('')}</div>` : '';
+    }
+    $('dictExamples').innerHTML = '';
+    openModal('dictModal');
+    speak(word);
     $('dictPlayPhraseBtn').onclick = () => openPlayPhrase(word);
-    $('dictSaveBtn').onclick = () => saveWord(word, $('dictTranslation').textContent || '');
+    $('dictSaveBtn').onclick = () => saveWord(word, $('dictTranslation').textContent || '', { kind: 'word', contextEn, contextAr: item?.ar || '', sourceLineKey: item ? lineKey(item) : '', startTime: item?.startTime || 0 });
     $('dictSpeakBtn').onclick = () => speak(word);
     try { $('dictTranslation').textContent = await translateMyMemory(word); } catch { $('dictTranslation').textContent = 'Translation failed'; }
     try {
@@ -892,12 +1020,14 @@
   function showSaved(type) {
     const body = $('savedBody');
     const isWords = type === 'words';
-    $('savedTitle').textContent = isWords ? 'Saved words' : 'Saved lines';
+    const isPhrases = type === 'phrases';
+    $('savedTitle').textContent = isPhrases ? 'Saved phrases' : (isWords ? 'Saved words' : 'Saved lines');
     state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
     state.savedLines = state.savedLines.map(normalizeSavedLine);
-    const arr = isWords ? state.savedWords : state.savedLines;
-    body.innerHTML = arr.length ? arr.map((x, i) => isWords
-      ? `<div class="saved-item"><b dir="ltr">${escapeHtml(x.word)}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${i}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`
+    const wordItems = isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind !== 'phrase');
+    const arr = (isWords || isPhrases) ? wordItems : state.savedLines;
+    body.innerHTML = arr.length ? arr.map((x, i) => (isWords || isPhrases)
+      ? `<div class="saved-item ${x.kind === 'phrase' ? 'phrase-item' : ''}"><span class="saved-type-chip">${x.kind === 'phrase' ? 'Phrase' : 'Word'}</span><b dir="ltr">${escapeHtml(x.word)}</b><p>${escapeHtml(x.ar || '')}</p>${x.contextEn ? `<div class="saved-context" dir="ltr">${escapeHtml(x.contextEn)}</div>` : ''}${x.contextAr ? `<div class="saved-context ar" dir="rtl">${escapeHtml(x.contextAr)}</div>` : ''}<div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${state.savedWords.indexOf(x)}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`
       : `<div class="saved-item"><b dir="ltr">${escapeHtml(cleanLine(x.en))}</b><p>${escapeHtml(x.ar || '')}</p><div class="saved-actions"><button class="small-btn" data-saved-play="${i}">Play</button><button class="small-btn" data-pp-line="${i}">PlayPhrase</button><button class="small-btn" data-review-one="line:${i}">Review</button><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></div></div>`).join('')
       : '<p>No saved items yet.</p>';
     openModal('savedModal');
@@ -968,12 +1098,13 @@
     const item = card.item;
     const isWord = card.type === 'word';
     const front = isWord ? item.word : cleanLine(item.en);
-    const back = item.ar || (isWord ? 'لا توجد ترجمة محفوظة لهذه الكلمة' : 'لا توجد ترجمة محفوظة');
-    const badge = isWord ? 'Word card' : 'Line card';
+    const back = item.ar || (isWord ? 'لا توجد ترجمة محفوظة لهذه الكلمة أو العبارة' : 'لا توجد ترجمة محفوظة');
+    const badge = isWord ? (item.kind === 'phrase' ? 'Phrase card' : 'Word card') : 'Line card';
+    const reviewContext = isWord && item.contextEn ? `<div class="review-context" dir="ltr">${escapeHtml(item.contextEn)}</div>${item.contextAr ? `<div class="review-context ar" dir="rtl">${escapeHtml(item.contextAr)}</div>` : ''}` : '';
     body.innerHTML = `<div class="review-card" data-review-key="${escapeHtml(card.key)}" data-review-type="${card.type}">
       <div class="review-count">${state.reviewIndex + 1} / ${due.length} due • ${badge}</div>
       <div class="review-front" dir="ltr">${escapeHtml(front)}</div>
-      <div class="review-back ${state.reviewRevealed ? '' : 'hidden'}" dir="rtl">${escapeHtml(back)}</div>
+      <div class="review-back ${state.reviewRevealed ? '' : 'hidden'}" dir="rtl">${escapeHtml(back)}${reviewContext}</div>
       <div class="review-actions">
         <button class="small-btn" data-review-reveal>Show meaning</button>
         <button class="small-btn again" data-review-grade="again">Again</button>
@@ -1289,9 +1420,11 @@
       if (action === 'copy') return copyLine(i);
       if (action === 'translate') return translateLine(i);
       if (action === 'save') return saveLine(i);
+      if (action === 'phrases') return saveDetectedPhrasesFromLine(i);
       if (action === 'playphrase') return openPlayPhrase(cleanLine(state.subtitles[i]?.en));
       return;
     }
+    const savePhrase = e.target.closest('[data-save-phrase]'); if (savePhrase) { savePhraseFromSubtitle(savePhrase.dataset.savePhrase, Number(savePhrase.dataset.index)); return; }
     const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
     const ppLine = e.target.closest('[data-pp-line]'); if (ppLine) { const item = state.savedLines[Number(ppLine.dataset.ppLine)]; if (item) openPlayPhrase(cleanLine(item.en)); return; }
     const reviewOne = e.target.closest('[data-review-one]'); if (reviewOne) { const [type, index] = reviewOne.dataset.reviewOne.split(':'); showSingleReviewCard(type, index); return; }
@@ -1315,6 +1448,7 @@
   $('menuLaraAll').onclick = translateAllLara;
   $('menuLaraSettings').onclick = () => openLaraSettings();
   $('menuSavedWords').onclick = () => { openMenu(false); showSaved('words'); };
+  if ($('menuSavedPhrases')) $('menuSavedPhrases').onclick = () => { openMenu(false); showSaved('phrases'); };
   $('menuSavedLines').onclick = () => { openMenu(false); showSaved('lines'); };
   $('menuReviewCards').onclick = showReviewCards;
   $('menuSaveCloud').onclick = saveLessonToCloud;
