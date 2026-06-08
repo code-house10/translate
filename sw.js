@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-lite-shell-v2';
+const CACHE_NAME = 'jungle-movie-lite-shell-v3-templates';
 const APP_SHELL = [
   './',
   './index.html',

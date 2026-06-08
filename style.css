@@ -47,3 +47,10 @@
 .saved-details summary::-webkit-details-marker{display:none}.saved-details summary b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}.saved-details summary:after{content:'▾';color:#64748b;font-weight:900;transition:transform .18s}.saved-details[open] summary:after{transform:rotate(180deg)}
 .saved-detail-body{border-top:1px solid #eef2f7;padding:11px;background:#fbfdff}.saved-section{background:#f8fafc;border:1px solid #eef2f7;border-radius:13px;padding:9px;margin-bottom:8px}.saved-section b{display:block;font-size:12px;color:#475569;margin-bottom:5px}.saved-section p{margin:0;line-height:1.55;font-weight:700}.saved-section .ar{color:#047857;margin-top:6px}.saved-example{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:8px;margin-top:6px}.saved-example p{margin:0 0 5px;line-height:1.45}.saved-example p:last-child{margin-bottom:0;color:#047857;font-weight:800}
 #repeatDelayValue{min-width:38px;text-align:center}
+
+/* Sentence templates */
+.action-icon.template,.line-action-strip .action-icon.template{background:#fff7ed;color:#c2410c}
+.line-action-strip{grid-template-columns:repeat(6,1fr)!important}
+.template-item{border-color:#fed7aa!important;background:#fffaf5!important}
+.template-chip{background:#ffedd5!important;color:#c2410c!important}
+.template-usage small{display:block;margin-top:6px;color:#92400e;font-weight:800}

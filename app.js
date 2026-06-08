@@ -157,6 +157,185 @@
     try { return await translateMyMemory(phrase); } catch { return ''; }
   }
 
+
+  const TEMPLATE_RULES = [
+    {
+      name: 'Repeated warning',
+      re: /^how many times have i told you not to (.+?)([?.!]*)$/i,
+      build: m => ({
+        pattern: 'How many times have I told you not to [do something]?',
+        slot: m[1],
+        usageEn: 'Use it when you are annoyed because someone keeps doing something you warned them not to do.',
+        usageAr: 'تستخدمها عندما تكون منزعجًا لأن شخصًا يكرر شيئًا حذرته منه أكثر من مرة.',
+        examples: [
+          { en: 'How many times have I told you not to touch my phone?', ar: 'كم مرة قلت لك ألا تلمس هاتفي؟' },
+          { en: 'How many times have I told you not to interrupt me?', ar: 'كم مرة قلت لك ألا تقاطعني؟' },
+          { en: 'How many times have I told you not to leave the door open?', ar: 'كم مرة قلت لك ألا تترك الباب مفتوحًا؟' }
+        ]
+      })
+    },
+    {
+      name: 'Shouldn’t you be…?',
+      re: /^(?:hey,?\s*)?should(?:n['’]t| not) you be (.+?)([?.!]*)$/i,
+      build: m => ({
+        pattern: "Shouldn't you be [somewhere / doing something]?",
+        slot: m[1],
+        usageEn: 'Use it to remind someone of where they should be or what they should be doing now.',
+        usageAr: 'تستخدمها لتذكير شخص بالمكان الذي يفترض أن يكون فيه أو الشيء الذي يفترض أن يفعله الآن.',
+        examples: [
+          { en: "Shouldn't you be at school?", ar: 'ألا يفترض أن تكون في المدرسة؟' },
+          { en: "Shouldn't you be getting ready?", ar: 'ألا يفترض أن تكون تستعد؟' },
+          { en: "Shouldn't you be working right now?", ar: 'ألا يفترض أن تكون تعمل الآن؟' }
+        ]
+      })
+    },
+    {
+      name: 'I got some time',
+      re: /^(?:nah,?\s*)?i (?:got|have got|have) some time\.?$/i,
+      build: () => ({
+        pattern: 'I got some time.',
+        slot: 'some time',
+        usageEn: 'Use it when you want to say you are not in a hurry and have a little free time.',
+        usageAr: 'تستخدمها عندما تريد أن تقول إن لديك بعض الوقت ولست مستعجلًا.',
+        examples: [
+          { en: 'I got some time before class.', ar: 'لدي بعض الوقت قبل الحصة.' },
+          { en: 'I got some time if you want to talk.', ar: 'لدي بعض الوقت إذا أردت أن نتكلم.' },
+          { en: 'I got some time before the meeting.', ar: 'لدي بعض الوقت قبل الاجتماع.' }
+        ]
+      })
+    },
+    {
+      name: 'Besides, I wanna…',
+      re: /^(?:besides,?\s*)?i (?:wanna|want to) (.+?)([.!?]*)$/i,
+      build: m => ({
+        pattern: 'Besides, I wanna [do something].',
+        slot: m[1],
+        usageEn: 'Use it to add another reason for what you want to do.',
+        usageAr: 'تستخدمها عندما تضيف سببًا آخر لما تريد فعله.',
+        examples: [
+          { en: 'Besides, I wanna finish this episode.', ar: 'وبعدين أنا عايز أنهي الحلقة دي.' },
+          { en: 'Besides, I wanna talk to him first.', ar: 'ثم إنني أريد أن أتحدث معه أولًا.' },
+          { en: 'Besides, I wanna make sure everything is okay.', ar: 'وفوق ذلك أريد أن أتأكد أن كل شيء بخير.' }
+        ]
+      })
+    },
+    {
+      name: 'You like…?',
+      re: /^(?:oh,?\s*)?you like (.+?)([?.!]*)$/i,
+      build: m => ({
+        pattern: 'You like [something]?',
+        slot: m[1],
+        usageEn: 'Use it in casual conversation when you discover someone likes something.',
+        usageAr: 'تستخدمها في الكلام العادي عندما تكتشف أن شخصًا يحب شيئًا ما.',
+        examples: [
+          { en: 'You like this song?', ar: 'هل تحب هذه الأغنية؟' },
+          { en: 'You like horror movies?', ar: 'هل تحب أفلام الرعب؟' },
+          { en: 'You like that place?', ar: 'هل يعجبك ذلك المكان؟' }
+        ]
+      })
+    },
+    {
+      name: 'I love…',
+      re: /^i love (.+?)([!.]*)$/i,
+      build: m => ({
+        pattern: 'I love [something]!',
+        slot: m[1],
+        usageEn: 'Use it to react strongly and positively to something you really like.',
+        usageAr: 'تستخدمها عندما تعبر بحماس أنك تحب شيئًا جدًا.',
+        examples: [
+          { en: 'I love that idea!', ar: 'أحب هذه الفكرة جدًا!' },
+          { en: 'I love this show!', ar: 'أنا أحب هذا البرنامج!' },
+          { en: 'I love the way you said that.', ar: 'أحب الطريقة التي قلت بها ذلك.' }
+        ]
+      })
+    },
+    {
+      name: 'I did everything I could to…',
+      re: /^i did everything i could to (.+?)([.!?]*)$/i,
+      build: m => ({
+        pattern: 'I did everything I could to [do something].',
+        slot: m[1],
+        usageEn: 'Use it when you want to say you tried your best to make something happen.',
+        usageAr: 'تستخدمها عندما تريد أن تقول إنك بذلت كل ما تستطيع لتحقيق شيء ما.',
+        examples: [
+          { en: 'I did everything I could to help him.', ar: 'فعلت كل ما بوسعي لمساعدته.' },
+          { en: 'I did everything I could to fix it.', ar: 'فعلت كل ما بوسعي لإصلاحه.' },
+          { en: 'I did everything I could to reach her.', ar: 'فعلت كل ما بوسعي للتواصل معها.' }
+        ]
+      })
+    },
+    {
+      name: 'By now you have worked out…',
+      re: /^(?:and )?i['’]?m sure by now you['’]?ve (?:worked|figured) out (.+?)([.!?]*)$/i,
+      build: m => ({
+        pattern: "I'm sure by now you've worked out [something].",
+        slot: m[1],
+        usageEn: 'Use it when you think the other person has already understood or figured something out.',
+        usageAr: 'تستخدمها عندما تعتقد أن الشخص الآخر فهم أو استنتج الأمر بالفعل.',
+        examples: [
+          { en: "I'm sure by now you've worked out the truth.", ar: 'أنا متأكد أنك الآن اكتشفت الحقيقة.' },
+          { en: "I'm sure by now you've figured out what happened.", ar: 'أنا متأكد أنك الآن فهمت ما حدث.' },
+          { en: "I'm sure by now you've worked out why I left.", ar: 'أنا متأكد أنك الآن عرفت لماذا رحلت.' }
+        ]
+      })
+    }
+  ];
+
+  function genericTemplateFromLine(line) {
+    const text = cleanLine(line).replace(/\s+/g, ' ').trim();
+    if (!text || text.length < 12) return null;
+    let pattern = text;
+    pattern = pattern.replace(/"[^"]+"|'[^']+'/g, '[title / name / phrase]');
+    pattern = pattern.replace(/\bto\s+([a-z]+(?:\s+[a-z]+){0,5})([.!?]*)$/i, 'to [do something]$2');
+    pattern = pattern.replace(/\b(my|your|his|her|our|their)\s+[a-z]+\b/gi, '$1 [thing]');
+    if (pattern === text) {
+      const words = tokenize(text);
+      if (words.length < 5) return null;
+      pattern = words.slice(0, Math.min(5, words.length)).join(' ') + ' [...]';
+    }
+    return {
+      pattern,
+      slot: '',
+      name: 'General reusable pattern',
+      usageEn: 'Use this as a reusable sentence frame. Replace the bracketed part with your own situation.',
+      usageAr: 'استخدمه كقالب جملة قابل للتغيير. بدّل الجزء بين الأقواس حسب موقفك.',
+      examples: [
+        { en: pattern, ar: 'استخدم نفس القالب وغيّر الجزء بين الأقواس حسب الموقف.' },
+        { en: pattern.replace('[do something]', 'talk to him').replace('[something]', 'this show').replace('[...]', 'in my own situation'), ar: 'مثال تطبيقي باستخدام نفس القالب في موقف مختلف.' }
+      ]
+    };
+  }
+
+  function extractTemplateFromLine(line) {
+    const text = cleanLine(line).replace(/^[-–—]\s*/, '').trim();
+    if (!text || shouldIgnoreSubtitle(text)) return null;
+    for (const rule of TEMPLATE_RULES) {
+      const m = text.match(rule.re);
+      if (m) return { ...rule.build(m), source: text, rule: rule.name };
+    }
+    return genericTemplateFromLine(text);
+  }
+
+  async function translateTemplateMeaning(template, contextEn = '') {
+    if (!template?.pattern) return '';
+    try {
+      const res = await fetch('/api/lara-translate', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(getLaraPayload({
+          text: `Template: ${template.pattern}\nUsage: ${template.usageEn || ''}\nMovie context: ${contextEn}`,
+          instructions: [
+            'Return only a concise Arabic explanation of when to use this English sentence template.',
+            'Do not translate the whole movie context.',
+            'Keep it suitable for a flashcard.'
+          ]
+        }))
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.translatedText) return String(data.translatedText).trim();
+    } catch (e) { console.warn('Lara template translation failed:', e); }
+    return template.usageAr || '';
+  }
+
   const CLOUD_CONFIG = {
     url: 'https://gyybwibqkasakgwfpkxz.supabase.co',
     key: 'sb_publishable_ZvjDNnkXMcXMrmVQDdWQwg_mSJPKW8L',
@@ -191,7 +370,8 @@
   function normalizeSavedWord(word) {
     const now = new Date().toISOString();
     const cleanWord = String(word?.word || '').trim();
-    const kind = word?.kind === 'phrase' || /\s+/.test(cleanWord) ? 'phrase' : 'word';
+    const explicitKind = String(word?.kind || '').toLowerCase();
+    const kind = explicitKind === 'template' ? 'template' : (explicitKind === 'phrase' || /\s+/.test(cleanWord) ? 'phrase' : 'word');
     return {
       ...word,
       kind,
@@ -757,6 +937,7 @@
         <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line naturally with Lara" title="Translate naturally with Lara">🌐</button>
         <button type="button" class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
         <button type="button" class="action-icon phrase" data-line-action="phrases" data-index="${i}" aria-label="Save phrase chunks" title="Save phrase chunks">🧩</button>
+        <button type="button" class="action-icon template" data-line-action="template" data-index="${i}" aria-label="Save sentence template" title="Save sentence template">🧱</button>
         <button type="button" class="action-icon playphrase" data-line-action="playphrase" data-index="${i}" aria-label="Search in PlayPhrase" title="Search in PlayPhrase">▶</button>
       </div>
     </article>`;
@@ -1004,10 +1185,10 @@
       existing.sourceLineKey = existing.sourceLineKey || normalizedPayload.sourceLineKey || '';
       existing.startTime = existing.startTime || normalizedPayload.startTime || 0;
       Object.assign(existing, normalizeSavedWord(existing));
-      toast(normalizedPayload.kind === 'phrase' ? 'Phrase already saved' : 'Word already saved');
+      toast(normalizedPayload.kind === 'template' ? 'Template already saved' : (normalizedPayload.kind === 'phrase' ? 'Phrase already saved' : 'Word already saved'));
     } else {
       state.savedWords.unshift(normalizedPayload);
-      toast(normalizedPayload.kind === 'phrase' ? 'Phrase saved' : 'Word saved');
+      toast(normalizedPayload.kind === 'template' ? 'Template saved' : (normalizedPayload.kind === 'phrase' ? 'Phrase saved' : 'Word saved'));
     }
     writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord));
     debounceSave();
@@ -1037,6 +1218,67 @@
       saved++;
     }
     toast(`${saved} phrase${saved === 1 ? '' : 's'} saved`);
+  }
+
+  async function saveTemplateFromSubtitle(idx = state.lastIndex) {
+    const item = state.subtitles[idx];
+    if (!item) return;
+    const template = extractTemplateFromLine(item.en);
+    if (!template || !template.pattern) return toast('No useful template found in this line');
+    setStatus('Saving sentence template...');
+    const contextEn = cleanLine(item.en);
+    const contextAr = item.ar || '';
+    const ar = await translateTemplateMeaning(template, contextEn);
+    saveWord(template.pattern, ar || template.usageAr || '', {
+      kind: 'template',
+      contextEn,
+      contextAr,
+      sourceLineKey: lineKey(item),
+      startTime: item.startTime || 0,
+      templateSlot: template.slot || '',
+      templateUsageEn: template.usageEn || '',
+      templateUsageAr: template.usageAr || '',
+      templateRule: template.rule || template.name || '',
+      examples: template.examples || []
+    });
+    setStatus('Template saved for smart review');
+  }
+
+  async function saveTemplatesFromAllSubtitles() {
+    if (!state.subtitles.length) return toast('Upload subtitles first');
+    openMenu(false);
+    let saved = 0;
+    const seen = new Set(state.savedWords.filter(x => x.kind === 'template').map(x => String(x.word || '').toLowerCase()));
+    for (let i = 0; i < state.subtitles.length; i++) {
+      const template = extractTemplateFromLine(state.subtitles[i].en);
+      if (!template?.pattern) continue;
+      const key = template.pattern.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const item = state.subtitles[i];
+      const ar = await translateTemplateMeaning(template, cleanLine(item.en));
+      state.savedWords.unshift(normalizeSavedWord({
+        kind: 'template',
+        word: template.pattern,
+        ar: ar || template.usageAr || '',
+        contextEn: cleanLine(item.en),
+        contextAr: item.ar || '',
+        sourceLineKey: lineKey(item),
+        startTime: item.startTime || 0,
+        templateSlot: template.slot || '',
+        templateUsageEn: template.usageEn || '',
+        templateUsageAr: template.usageAr || '',
+        templateRule: template.rule || template.name || '',
+        examples: template.examples || [],
+        savedAt: new Date().toISOString()
+      }));
+      saved++;
+      if (saved % 5 === 0) { writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord)); debounceSave(); scheduleCloudLibrarySync(); setStatus(`Saved ${saved} templates...`); }
+      if (saved >= 40) break;
+    }
+    writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord)); debounceSave(); scheduleCloudLibrarySync();
+    toast(saved ? `${saved} templates saved` : 'No new templates found');
+    setStatus(saved ? `${saved} sentence templates saved to cloud sync queue` : 'No new templates found');
   }
 
   async function saveLine(idx, translateIfMissing = true) {
@@ -1112,22 +1354,26 @@
     const body = $('savedBody');
     const isWords = type === 'words';
     const isPhrases = type === 'phrases';
-    $('savedTitle').textContent = isPhrases ? 'Saved phrases' : (isWords ? 'Saved words' : 'Saved lines');
+    const isTemplates = type === 'templates';
+    $('savedTitle').textContent = isTemplates ? 'Saved templates' : (isPhrases ? 'Saved phrases' : (isWords ? 'Saved words' : 'Saved lines'));
     state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
     state.savedLines = state.savedLines.map(normalizeSavedLine);
-    const wordItems = isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind !== 'phrase');
-    const arr = (isWords || isPhrases) ? wordItems : state.savedLines;
-    const countLabel = isPhrases ? 'phrases' : (isWords ? 'words' : 'lines');
+    const wordItems = isTemplates ? state.savedWords.filter(x => x.kind === 'template') : (isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind === 'word'));
+    const arr = (isWords || isPhrases || isTemplates) ? wordItems : state.savedLines;
+    const countLabel = isTemplates ? 'templates' : (isPhrases ? 'phrases' : (isWords ? 'words' : 'lines'));
     const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small></div>`;
     if (!arr.length) { body.innerHTML = header + '<p>No saved items yet.</p>'; openModal('savedModal'); return; }
     body.innerHTML = header + arr.map((x, i) => {
-      if (isWords || isPhrases) {
+      if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
         const examples = Array.isArray(x.examples) && x.examples.length ? `<div class="saved-section"><b>Examples</b>${x.examples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
-        return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''}">
-          <summary><span class="saved-type-chip">${x.kind === 'phrase' ? 'Phrase' : 'Word'}</span><b dir="ltr">${escapeHtml(x.word)}</b><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></summary>
+        const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
+        const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
+        return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
+          <summary><span class="saved-type-chip ${x.kind === 'template' ? 'template-chip' : ''}">${label}</span><b dir="ltr">${escapeHtml(x.word)}</b><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></summary>
           <div class="saved-detail-body">
-            ${x.ar ? `<div class="saved-section"><b>Meaning</b><p dir="rtl">${escapeHtml(x.ar)}</p></div>` : ''}
+            ${x.ar ? `<div class="saved-section"><b>Meaning / usage</b><p dir="rtl">${escapeHtml(x.ar)}</p></div>` : ''}
+            ${usage}
             ${x.contextEn ? `<div class="saved-section"><b>Movie context</b><p dir="ltr">${escapeHtml(x.contextEn)}</p>${x.contextAr ? `<p dir="rtl" class="ar">${escapeHtml(x.contextAr)}</p>` : ''}</div>` : ''}
             ${examples}
             <div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
@@ -1211,8 +1457,8 @@
     const isWord = card.type === 'word';
     const front = isWord ? item.word : cleanLine(item.en);
     const back = item.ar || (isWord ? 'لا توجد ترجمة محفوظة لهذه الكلمة أو العبارة' : 'لا توجد ترجمة محفوظة');
-    const badge = isWord ? (item.kind === 'phrase' ? 'Phrase card' : 'Word card') : 'Line card';
-    const reviewContext = isWord && item.contextEn ? `<div class="review-context" dir="ltr">${escapeHtml(item.contextEn)}</div>${item.contextAr ? `<div class="review-context ar" dir="rtl">${escapeHtml(item.contextAr)}</div>` : ''}` : '';
+    const badge = isWord ? (item.kind === 'template' ? 'Template card' : (item.kind === 'phrase' ? 'Phrase card' : 'Word card')) : 'Line card';
+    const reviewContext = isWord ? `${item.templateUsageEn ? `<div class="review-context" dir="ltr">${escapeHtml(item.templateUsageEn)}</div>` : ''}${item.templateUsageAr ? `<div class="review-context ar" dir="rtl">${escapeHtml(item.templateUsageAr)}</div>` : ''}${item.contextEn ? `<div class="review-context" dir="ltr">${escapeHtml(item.contextEn)}</div>` : ''}${item.contextAr ? `<div class="review-context ar" dir="rtl">${escapeHtml(item.contextAr)}</div>` : ''}` : '';
     body.innerHTML = `<div class="review-card" data-review-key="${escapeHtml(card.key)}" data-review-type="${card.type}">
       <div class="review-count">${state.reviewIndex + 1} / ${due.length} due • ${badge}</div>
       <div class="review-front" dir="ltr">${escapeHtml(front)}</div>
@@ -1287,7 +1533,7 @@
       state.cloudLastSyncAt = payload.updated_at;
       localStorage.setItem('jm_cloud_last_sync_at', state.cloudLastSyncAt);
       if (!silent) {
-        setStatus(`Saved items synced to Supabase • ${state.savedWords.length} words/phrases • ${state.savedLines.length} lines`);
+        setStatus(`Saved items synced to Supabase • ${state.savedWords.length} words/phrases/templates • ${state.savedLines.length} lines`);
         toast('Saved items synced to cloud');
       } else if (reason === 'auto') {
         setStatus(`Auto-synced saved items • ${state.savedWords.length + state.savedLines.length} cards`);
@@ -1330,7 +1576,7 @@
         state.cloudLastSyncAt = data.updated_at || new Date().toISOString();
         localStorage.setItem('jm_cloud_last_sync_at', state.cloudLastSyncAt);
         if (!silent) {
-          setStatus(`Loaded saved items from Supabase • ${state.savedWords.length} words/phrases • ${state.savedLines.length} lines`);
+          setStatus(`Loaded saved items from Supabase • ${state.savedWords.length} words/phrases/templates • ${state.savedLines.length} lines`);
           toast('Saved items loaded from cloud');
         }
         return true;
@@ -1593,6 +1839,7 @@
       if (action === 'translate') return translateLine(i);
       if (action === 'save') return saveLine(i);
       if (action === 'phrases') return saveDetectedPhrasesFromLine(i);
+      if (action === 'template') return saveTemplateFromSubtitle(i);
       if (action === 'playphrase') return openPlayPhrase(cleanLine(state.subtitles[i]?.en));
       return;
     }
@@ -1623,6 +1870,8 @@
   $('menuLaraSettings').onclick = () => openLaraSettings();
   $('menuSavedWords').onclick = () => { openMenu(false); showSaved('words'); };
   if ($('menuSavedPhrases')) $('menuSavedPhrases').onclick = () => { openMenu(false); showSaved('phrases'); };
+  if ($('menuSavedTemplates')) $('menuSavedTemplates').onclick = () => { openMenu(false); showSaved('templates'); };
+  if ($('menuExtractTemplates')) $('menuExtractTemplates').onclick = saveTemplatesFromAllSubtitles;
   $('menuSavedLines').onclick = () => { openMenu(false); showSaved('lines'); };
   $('menuReviewCards').onclick = showReviewCards;
   $('menuSaveCloud').onclick = saveLessonToCloud;
