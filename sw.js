@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-mymemory-template-examples-v4-merged-good-examples-delete';
+const CACHE_NAME = 'jungle-movie-puter-ai-v1';
 const APP_SHELL = [
   './',
   './index.html',
