@@ -593,25 +593,121 @@
     return String(localStorage.getItem('jm_chats_llm_base_url') || 'https://chats-llm.com/api/v1').trim().replace(/\/$/, '');
   }
 
+
+  const CHAT_LLM_FREE_MODEL_PRIORITY = [
+  'moonshotai/kimi-k2.6:free',
+  'stepfun/step-3.7-flash:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'openai/gpt-oss-120b:free',
+  'openai/gpt-oss-20b:free',
+  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'z-ai/glm-4.5-air:free',
+  'qwen/qwen3-coder:free',
+  'poolside/laguna-m.1:free',
+  'nex-agi/nex-n2-pro:free',
+  'openrouter/free',
+  'kilo-auto/free'
+];
+
+  function isFreeChatLlmModelId(model) {
+    const id = cleanLine(model).toLowerCase();
+    return Boolean(id && (id.endsWith(':free') || id === 'openrouter/free' || id === 'kilo-auto/free' || id.includes('/free')));
+  }
+
+  function chatLlmFreeAlias(model) {
+    const id = cleanLine(model).toLowerCase();
+    if (!id) return '';
+    const aliases = {
+      'auto': '',
+      'free': 'openrouter/free',
+      'openrouter': 'openrouter/free',
+      'openrouter/free': 'openrouter/free',
+      'kilo-auto/free': 'kilo-auto/free',
+      'kilo/free': 'kilo-auto/free',
+      'kimi': 'moonshotai/kimi-k2.6:free',
+      'kimi-k2.6': 'moonshotai/kimi-k2.6:free',
+      'moonshotai/kimi-k2.6': 'moonshotai/kimi-k2.6:free',
+      'step': 'stepfun/step-3.7-flash:free',
+      'stepfun/step-3.7-flash': 'stepfun/step-3.7-flash:free',
+      'llama': 'meta-llama/llama-3.3-70b-instruct:free',
+      'meta-llama/llama-3.3-70b-instruct': 'meta-llama/llama-3.3-70b-instruct:free',
+      'gpt-oss-120b': 'openai/gpt-oss-120b:free',
+      'openai/gpt-oss-120b': 'openai/gpt-oss-120b:free',
+      'gpt-oss-20b': 'openai/gpt-oss-20b:free',
+      'openai/gpt-oss-20b': 'openai/gpt-oss-20b:free',
+      'qwen': 'qwen/qwen3-next-80b-a3b-instruct:free',
+      'qwen/qwen3-next-80b-a3b-instruct': 'qwen/qwen3-next-80b-a3b-instruct:free'
+    };
+    if (aliases[id] !== undefined) return aliases[id];
+    return isFreeChatLlmModelId(id) ? cleanLine(model) : '';
+  }
+
+  function chatLlmModelScore(id) {
+    const lower = cleanLine(id).toLowerCase();
+    const idx = CHAT_LLM_FREE_MODEL_PRIORITY.findIndex(x => x.toLowerCase() === lower);
+    if (idx >= 0) return idx;
+    if (/content-safety|guard|moderation|safety|lyria|image|vision|vl\b|audio|tts|speech|clip/.test(lower)) return 9999;
+    if (/kimi|step|llama|qwen|gpt-oss|gemma|glm|hermes/.test(lower)) return 100;
+    if (lower === 'openrouter/free' || lower === 'kilo-auto/free') return 120;
+    return 500;
+  }
+
+  function chooseBestFreeChatLlmModel(models) {
+    const ids = (Array.isArray(models) ? models : [])
+      .map(m => cleanLine(m?.id || m))
+      .filter(isFreeChatLlmModelId);
+    const unique = [...new Set(ids)];
+    for (const preferred of CHAT_LLM_FREE_MODEL_PRIORITY) {
+      const found = unique.find(id => id.toLowerCase() === preferred.toLowerCase());
+      if (found) return found;
+    }
+    unique.sort((a, b) => chatLlmModelScore(a) - chatLlmModelScore(b));
+    return unique[0] || '';
+  }
+
   async function chooseChatLlmModelDirect(cfg) {
-    const explicit = cleanLine(cfg?.model || localStorage.getItem('jm_chats_llm_model') || '');
+    const explicit = chatLlmFreeAlias(cfg?.model || localStorage.getItem('jm_chats_llm_model') || '');
     if (explicit) return explicit;
     const apiKey = cleanLine(cfg?.apiKey || '');
-    if (!apiKey) return 'auto';
+    if (!apiKey) return 'openrouter/free';
     try {
       const res = await fetch(`${chatsLlmBaseUrl()}/models`, {
         headers: { Authorization: `Bearer ${apiKey}` }
       });
       const data = await res.json().catch(() => ({}));
-      const model = Array.isArray(data?.data) ? data.data.find(m => m?.id)?.id : '';
+      const model = chooseBestFreeChatLlmModel(data?.data || []);
       if (model) {
         localStorage.setItem('jm_chats_llm_model', model);
         return model;
       }
     } catch (e) {
-      console.warn('Direct Chats-LLM models lookup failed:', e);
+      console.warn('Direct Chats-LLM free models lookup failed:', e);
     }
-    return 'auto';
+    return 'openrouter/free';
+  }
+
+
+  async function getChatLlmFreeModelCandidatesDirect(cfg) {
+    const out = [];
+    const add = (m) => { const id = chatLlmFreeAlias(m); if (id && !out.some(x => x.toLowerCase() === id.toLowerCase())) out.push(id); };
+    add(cfg?.model || localStorage.getItem('jm_chats_llm_model') || '');
+    const apiKey = cleanLine(cfg?.apiKey || '');
+    if (apiKey) {
+      try {
+        const res = await fetch(`${chatsLlmBaseUrl()}/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+        const data = await res.json().catch(() => ({}));
+        const ids = (Array.isArray(data?.data) ? data.data : [])
+          .map(m => cleanLine(m?.id || m))
+          .filter(isFreeChatLlmModelId)
+          .sort((a, b) => chatLlmModelScore(a) - chatLlmModelScore(b));
+        ids.forEach(add);
+      } catch (e) { console.warn('Direct free model candidate lookup failed:', e); }
+    }
+    CHAT_LLM_FREE_MODEL_PRIORITY.forEach(add);
+    add('openrouter/free');
+    return out;
   }
 
   function normalizeAiTemplate(raw, sourceLine) {
@@ -702,35 +798,45 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   async function callChatsLlmDirect(prompt, cfg, { temperature = 0.3, maxTokens = 900 } = {}) {
     const apiKey = cleanLine(cfg?.apiKey || '');
     if (!apiKey) throw new Error('Chats-LLM key is missing. Open AI examples settings and save the key first.');
-    const model = await chooseChatLlmModelDirect(cfg);
-    const res = await fetch(`${chatsLlmBaseUrl()}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: 'Return strict JSON only. Generate natural English learning examples with Arabic translations.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature,
-        max_tokens: maxTokens,
-        stream: false
-      })
-    });
-    const raw = await res.text();
-    let data = {};
-    try { data = JSON.parse(raw); } catch { data = { raw }; }
-    if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
-    const content = data?.choices?.[0]?.message?.content || data?.output || data?.message || raw;
-    return parseJsonLoose(content) || { raw: content };
+    const modelsToTry = await getChatLlmFreeModelCandidatesDirect(cfg);
+    let lastError = '';
+    for (const model of modelsToTry) {
+      const res = await fetch(`${chatsLlmBaseUrl()}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: 'Return strict JSON only. Generate natural, complete daily-life English examples with natural Arabic translations. Never leave placeholders or brackets.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature,
+          max_tokens: maxTokens,
+          stream: false
+        })
+      });
+      const raw = await res.text();
+      let data = {};
+      try { data = JSON.parse(raw); } catch { data = { raw }; }
+      if (!res.ok) {
+        lastError = chatLlmErrorMessage(res.status, data);
+        if (res.status === 401 || res.status === 403) throw new Error(lastError);
+        continue;
+      }
+      const content = data?.choices?.[0]?.message?.content || data?.output || data?.message || raw;
+      const parsed = parseJsonLoose(content) || { raw: content };
+      parsed.__model = model;
+      return parsed;
+    }
+    throw new Error(lastError || 'No free Chats-LLM model returned a valid response.');
   }
 
   async function fetchTemplateFromChatLlm(line) {
     const cfg = (typeof getChatLlmConfig === 'function') ? getChatLlmConfig() : { apiKey: '', model: '' };
-    const payload = { line: cleanLine(line), apiKey: cfg.apiKey || '', model: cfg.model || '' };
+    const payload = { line: cleanLine(line), apiKey: cfg.apiKey || '', model: chatLlmFreeAlias(cfg.model || '') };
     try {
       const res = await fetch('/api/chats-llm-extract-template', {
         method: 'POST',
@@ -940,7 +1046,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
       usageEn: template.usageEn || '',
       usageAr: template.usageAr || '',
       apiKey: cfg.apiKey || '',
-      model: cfg.model || ''
+      model: chatLlmFreeAlias(cfg.model || '')
     };
     try {
       const res = await fetch('/api/chats-llm-template-examples', {
@@ -1887,17 +1993,21 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   const CHAT_LLM_SETTINGS_CLOUD_WORD = '__chats_llm_settings__';
 
   function getChatLlmConfig() {
-    return {
-      apiKey: String(localStorage.getItem('jm_chats_llm_api_key') || '').trim(),
-      model: String(localStorage.getItem('jm_chats_llm_model') || '').trim()
-    };
+    const apiKey = String(localStorage.getItem('jm_chats_llm_api_key') || '').trim();
+    const storedModel = String(localStorage.getItem('jm_chats_llm_model') || '').trim();
+    const model = chatLlmFreeAlias(storedModel);
+    if (storedModel && !model) localStorage.removeItem('jm_chats_llm_model');
+    return { apiKey, model };
   }
 
   function saveChatLlmConfigToLocal() {
     const apiKey = String($('chatLlmKeyInput')?.value || '').trim();
-    const model = String($('chatLlmModelInput')?.value || '').trim();
+    const rawModel = String($('chatLlmModelInput')?.value || '').trim();
+    const model = chatLlmFreeAlias(rawModel);
     if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey); else localStorage.removeItem('jm_chats_llm_api_key');
     if (model) localStorage.setItem('jm_chats_llm_model', model); else localStorage.removeItem('jm_chats_llm_model');
+    if (rawModel && !model && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'This is not a free model. I ignored it and will auto-select a free model only.';
+    if (model && $('chatLlmModelInput')) $('chatLlmModelInput').value = model;
     return { apiKey, model };
   }
 
@@ -1931,7 +2041,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     const item = (remoteWords || []).find(isChatLlmSettingsCloudItem);
     if (!item) return false;
     const apiKey = String(item.apiKey || '').trim();
-    const model = String(item.model || '').trim();
+    const model = chatLlmFreeAlias(String(item.model || '').trim());
     if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey);
     if (model) localStorage.setItem('jm_chats_llm_model', model);
     return Boolean(apiKey || model);
@@ -1951,14 +2061,15 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     const cfg = getChatLlmConfig();
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = cfg.apiKey;
     if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model;
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Add the API key once, or set CHATS_LLM_API_KEY in Vercel. Leave model empty for auto selection.';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Add the API key once, or set CHATS_LLM_API_KEY in Vercel. Free models only are used. Leave model empty for auto-select.';
     openModal('aiTemplateModal');
   }
 
   function chatLlmErrorMessage(status, data) {
     if (status === 404) return 'AI examples API proxy is missing. Upload the full Vercel project folder, not the HTML file only.';
     if (status === 401 || status === 403) return 'Chats-LLM rejected the API key. Check the key or Vercel environment variable.';
-    if (status === 429) return 'Chats-LLM rate limit exceeded. Try again later or use another model/plan.';
+    if (status === 402) return 'Chats-LLM says the selected model is not free or has no available credits. The app now auto-selects free models only; clear the model field and test again.';
+    if (status === 429) return 'Chats-LLM rate limit exceeded on the free model. Try again later or leave model empty so the app can choose another free model.';
     return data?.error || data?.details || `Chats-LLM failed (${status})`;
   }
 

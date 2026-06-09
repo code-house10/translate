@@ -174,9 +174,9 @@
   <div id="aiTemplateModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head"><b>AI Template Examples settings</b><button data-close-modal="aiTemplateModal">×</button></div>
-      <p class="settings-hint">Use Chats-LLM to extract reusable templates from subtitle lines, generate complete daily-life examples, and translate the examples to Arabic. Lara remains for subtitle-line translation only. For better security, use Vercel environment variable <b>CHATS_LLM_API_KEY</b>. You can also save the key locally and to Supabase for personal cross-device use.</p>
+      <p class="settings-hint">Use Chats-LLM free models only to extract reusable templates from subtitle lines, generate complete daily-life examples, and translate the examples to Arabic. Lara remains for subtitle-line translation only. For better security, use Vercel environment variable <b>CHATS_LLM_API_KEY</b>. You can also save the key locally and to Supabase for personal cross-device use.</p>
       <input id="chatLlmKeyInput" class="text-input" dir="ltr" type="password" placeholder="Chats-LLM API Key" />
-      <input id="chatLlmModelInput" class="text-input" dir="ltr" placeholder="Model optional, leave empty for auto" />
+      <input id="chatLlmModelInput" class="text-input" dir="ltr" placeholder="Free model only, optional: openrouter/free" />
       <div class="settings-actions">
         <button id="saveChatLlmSettingsBtn" class="full-btn">Save AI key to cloud</button>
         <button id="testChatLlmSettingsBtn" class="small-btn">Test examples</button>

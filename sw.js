@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-chats-llm-direct-fallback-v1';
+const CACHE_NAME = 'jungle-movie-free-models-v1';
 const APP_SHELL = [
   './',
   './index.html',
