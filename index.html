@@ -173,12 +173,12 @@
 
   <div id="aiTemplateModal" class="modal hidden">
     <div class="modal-card">
-      <div class="modal-head"><b>Puter AI Template Examples</b><button data-close-modal="aiTemplateModal">×</button></div>
-      <p class="settings-hint">Template examples now use Puter AI to generate natural daily-life examples from the saved template, with Arabic translation. If Puter is unavailable, the app falls back to subtitle matches, MyMemory, and safe examples. Lara remains for subtitle-line translation only. No API key is required.</p>
+      <div class="modal-head"><b>MyMemory Template Examples</b><button data-close-modal="aiTemplateModal">×</button></div>
+      <p class="settings-hint">Template examples now use MyMemory only. The app searches MyMemory translation memory for complete English examples, then uses MyMemory again to translate the examples to Arabic. Lara remains for subtitle-line translation only. No Chats-LLM key is required.</p>
       <input id="chatLlmKeyInput" class="text-input hidden" dir="ltr" type="password" placeholder="Not needed" />
       <input id="chatLlmModelInput" class="text-input hidden" dir="ltr" placeholder="Not needed" />
       <div class="settings-actions">
-        <button id="testChatLlmSettingsBtn" class="full-btn">Test Puter examples</button>
+        <button id="testChatLlmSettingsBtn" class="full-btn">Test MyMemory examples</button>
         <button id="clearChatLlmSettingsBtn" class="small-btn danger">Clear old AI settings</button>
       </div>
       <p id="chatLlmSettingsStatus" class="menu-status"></p>
@@ -193,7 +193,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="https://js.puter.com/v2/"></script>
   <script src="./app.js"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {

@@ -388,7 +388,7 @@
     }
 
     // For unknown templates, do NOT create mechanical examples by random word replacement.
-    // Bad examples are worse than no examples. The user can use "Improve examples" to rebuild them with Puter AI, then MyMemory fallback.
+    // Bad examples are worse than no examples. The user can use "Improve examples" to rebuild them with MyMemory.
     return [];
   }
 
@@ -1155,94 +1155,6 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   }
 
 
-  function puterResponseToText(response) {
-    if (typeof response === 'string') return response;
-    if (!response) return '';
-    if (typeof response.text === 'string') return response.text;
-    if (typeof response.message?.content === 'string') return response.message.content;
-    if (Array.isArray(response.message?.content)) return response.message.content.map(x => x?.text || x?.content || '').join('\n');
-    if (typeof response.content === 'string') return response.content;
-    if (Array.isArray(response.content)) return response.content.map(x => x?.text || x?.content || '').join('\n');
-    try { return JSON.stringify(response); } catch { return String(response); }
-  }
-
-  function buildPuterTemplateExamplesPrompt(template, contextEn = '') {
-    const pattern = cleanLine(template?.pattern || '');
-    const source = cleanLine(contextEn || template?.source || '');
-    const slot = cleanLine(template?.slot || template?.templateSlot || '');
-    const usageEn = cleanLine(template?.usageEn || template?.templateUsageEn || '');
-    const usageAr = cleanLine(template?.usageAr || template?.templateUsageAr || '');
-    return `You are an expert English tutor for an Arabic-speaking learner.
-
-TASK:
-Use the sentence template below to generate 3 natural, complete, everyday English examples.
-Translate each example into natural Arabic.
-
-TEMPLATE:
-${pattern}
-
-ORIGINAL MOVIE LINE / CONTEXT:
-${source}
-
-ORIGINAL REPLACED PART:
-${slot}
-
-USAGE EN:
-${usageEn}
-
-USAGE AR:
-${usageAr}
-
-STRICT RULES:
-- Return JSON only. No markdown. No explanations.
-- The JSON must be an array of exactly 3 objects.
-- Each object must be: {"en":"...", "ar":"..."}
-- Replace every bracket placeholder like [do something], [something], [someone], [somewhere], [time] with realistic daily-life content.
-- Do not keep brackets [] in the examples.
-- Do not write incomplete sentences.
-- Do not write meta sentences like "examples of template" or "using the same template".
-- Do not create strange examples. Make them useful for daily conversation.
-- Keep the same grammar structure and tone of the template.
-- If the template sounds casual, keep the examples casual.
-- If the template is a question, every example must be a complete question.
-- If the template expresses annoyance, the examples should sound naturally annoyed, not rude.
-
-Good output example:
-[
-  {"en":"Shouldn't you be at work by now?", "ar":"ألا يفترض أن تكون في العمل الآن؟"},
-  {"en":"Shouldn't you be getting ready for class?", "ar":"ألا يفترض أن تستعد للحصة؟"},
-  {"en":"Shouldn't you be on your way to school?", "ar":"ألا يفترض أن تكون في طريقك إلى المدرسة؟"}
-]`;
-  }
-
-  async function fetchTemplateExamplesFromPuter(template, contextEn = '') {
-    if (!template?.pattern || !/\[[^\]]+\]/.test(template.pattern)) return [];
-    if (!window.puter?.ai?.chat) throw new Error('Puter AI is not loaded. Check your internet connection or reload the page.');
-    const prompt = buildPuterTemplateExamplesPrompt(template, contextEn);
-    const modelCandidates = ['gpt-5.4-nano', 'gpt-5-nano', 'gpt-4.1-nano', 'gpt-4o-mini'];
-    let lastError = null;
-    for (const model of modelCandidates) {
-      try {
-        const response = await window.puter.ai.chat(prompt, { model, temperature: 0.35, max_tokens: 900 });
-        const text = puterResponseToText(response);
-        const parsed = parseJsonLoose(text);
-        const rawList = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.examples) ? parsed.examples : []);
-        const examples = sanitizeTemplateExamples(rawList.map(x => ({
-          en: cleanLine(x?.en || x?.english || ''),
-          ar: cleanLine(x?.ar || x?.arabic || ''),
-          source: 'puter-ai'
-        })), template.pattern, contextEn || template.source || '');
-        if (examples.length >= 3) return examples.slice(0, 3);
-        if (examples.length) return await translateTemplateExamplesWithMyMemory(examples);
-      } catch (e) {
-        lastError = e;
-        console.warn('Puter AI template examples failed with model', model, e);
-      }
-    }
-    if (lastError) throw lastError;
-    return [];
-  }
-
   async function fetchTemplateExamplesFromChatLlm(template, contextEn = '') {
     // Chats-LLM is intentionally disabled for template examples.
     // Template examples now use MyMemory translation-memory lookup + MyMemory translation only.
@@ -1309,23 +1221,11 @@ Good output example:
 
     // Priority now:
     // 1) Real matching lines already present in the uploaded subtitle file.
-    // 2) Puter AI generates natural daily-life examples from the template.
-    // 3) MyMemory translation-memory matches and translation fallback.
-    // 4) Safe daily-life examples built from the template, then translated with MyMemory.
+    // 2) MyMemory translation-memory matches for complete English examples.
+    // 3) Safe daily-life examples built from the template, then translated with MyMemory.
     // Lara is reserved for subtitle-line translation only.
     let candidates = [];
     candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
-
-    if (candidates.length < 3) {
-      try {
-        const aiExamples = await fetchTemplateExamplesFromPuter(template, contextEn || template.source || '');
-        candidates = candidates.concat(aiExamples);
-      } catch (e) {
-        console.warn('Puter AI examples unavailable, falling back to MyMemory:', e);
-        setStatus('Puter AI unavailable. Falling back to MyMemory examples...');
-      }
-    }
-
     if (candidates.length < 3) candidates = candidates.concat(await fetchTemplateExamplesFromMyMemory(template, contextEn));
     if (candidates.length < 3) candidates = candidates.concat(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''));
     if (candidates.length < 3) candidates = candidates.concat(makeGenericTemplateExamples(template, contextEn || template.source || ''));
@@ -1354,7 +1254,7 @@ Good output example:
   async function refreshTemplateExamplesByIndex(index) {
     const item = state.savedWords[Number(index)];
     if (!item || item.kind !== 'template') return toast('Template not found');
-    setStatus('Generating natural daily examples with Puter AI...');
+    setStatus('Generating natural daily examples with MyMemory...');
     const template = {
       pattern: item.word,
       source: item.contextEn || '',
@@ -1369,8 +1269,8 @@ Good output example:
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast('Examples updated with Puter AI');
-    setStatus('Template examples updated with Puter AI and synced');
+    toast('Examples updated with MyMemory');
+    setStatus('Template examples updated with MyMemory and synced');
   }
 
   async function refreshAllTemplateExamples() {
@@ -1378,7 +1278,7 @@ Good output example:
       .map((item, index) => ({ item, index }))
       .filter(x => x.item && x.item.kind === 'template');
     if (!templateIndexes.length) return toast('No saved templates yet');
-    setStatus('Improving templates with Puter AI examples...');
+    setStatus('Improving templates with MyMemory examples...');
     let count = 0;
     for (const { item, index } of templateIndexes) {
       const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
@@ -1391,7 +1291,7 @@ Good output example:
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast(`${count} template examples improved with Puter AI`);
+    toast(`${count} template examples improved with MyMemory`);
     setStatus('MyMemory template examples saved to cloud sync queue');
   }
 
@@ -2316,7 +2216,7 @@ Good output example:
     const cfg = getChatLlmConfig();
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = cfg.apiKey;
     if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model;
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'No API key is needed. Template examples use Puter AI first, then MyMemory fallback; Lara remains for subtitle translation.';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'No AI key is needed now. Template examples use MyMemory only; Lara remains for subtitle translation.';
     openModal('aiTemplateModal');
   }
 
@@ -2690,7 +2590,7 @@ Good output example:
       if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
         const displayExamples = x.kind === 'template' ? sanitizeTemplateExamples(x.examples || [], x.word, x.contextEn || '') : (Array.isArray(x.examples) ? x.examples.slice(0,3) : []);
-        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">Subtitle / Puter AI / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">Subtitle / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
@@ -2898,7 +2798,7 @@ Good output example:
           state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
         }
         if (restoredLara && $('laraSettingsStatus')) $('laraSettingsStatus').textContent = 'Lara settings restored from cloud.';
-        if (restoredChatLlm && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings restored but not used. Puter AI is now used for template examples.';
+        if (restoredChatLlm && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings restored but not used. MyMemory is now used for template examples.';
         writeJSON('jm_saved_lines', state.savedLines);
         writeJSON('jm_saved_words', state.savedWords);
         saveState();
@@ -3267,11 +3167,11 @@ Good output example:
   };
 
   if ($('saveChatLlmSettingsBtn')) $('saveChatLlmSettingsBtn').onclick = async () => {
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'No API key is needed now. Template examples use Puter AI, and saved templates still sync to Supabase.';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'No AI key is needed now. Template examples use MyMemory, and saved templates still sync to Supabase.';
     toast('No AI key needed');
   };
   if ($('testChatLlmSettingsBtn')) $('testChatLlmSettingsBtn').onclick = async () => {
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Testing Puter AI template examples...';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Testing MyMemory template examples...';
     try {
       const sampleTemplate = {
         pattern: 'How many times have I told you not to [do something]?',
@@ -3280,18 +3180,18 @@ Good output example:
         usageEn: 'Use it when someone keeps doing something you warned them not to do.'
       };
       const examples = await generateTemplateExamplesWithMyMemory(sampleTemplate, sampleTemplate.source);
-      if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = examples.length ? `Puter AI works. Sample: ${examples[0].en} — ${examples[0].ar || 'Arabic translation pending'}` : 'Puter AI returned no valid examples. MyMemory fallback will still work.';
-      toast(examples.length ? 'Puter AI examples test passed' : 'No valid examples');
+      if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = examples.length ? `MyMemory works. Sample: ${examples[0].en} — ${examples[0].ar || 'Arabic translation pending'}` : 'MyMemory returned no valid examples. Try again later.';
+      toast(examples.length ? 'MyMemory examples test passed' : 'No valid examples');
     } catch (e) {
       if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = e.message || String(e);
-      toast('Puter AI examples test failed');
+      toast('MyMemory examples test failed');
     }
   };
   if ($('clearChatLlmSettingsBtn')) $('clearChatLlmSettingsBtn').onclick = async () => {
     localStorage.removeItem('jm_chats_llm_api_key'); localStorage.removeItem('jm_chats_llm_model');
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = '';
     if ($('chatLlmModelInput')) $('chatLlmModelInput').value = '';
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings cleared locally. Puter AI does not require a key.';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings cleared locally. MyMemory does not require a key.';
     toast('Old AI settings cleared');
   };
 
