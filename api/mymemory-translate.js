@@ -1,5 +1,6 @@
 // Vercel Serverless Function: /api/mymemory-translate
-// Used for on-demand subtitle/word/example translation through MyMemory.
+// Used for saved words, saved phrases, dictionary examples, and template examples.
+// Lara is intentionally reserved for subtitle-line translation only.
 
 const MYMEMORY_ENDPOINT = 'https://api.mymemory.translated.net/get';
 const DEFAULT_SOURCE = 'en';
@@ -52,7 +53,7 @@ function splitText(text, maxBytes = MAX_BYTES) {
   return chunks;
 }
 
-async function translateSegment(text, source, target) {
+async function fetchMyMemory(text, source, target) {
   const url = `${MYMEMORY_ENDPOINT}?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(`${source}|${target}`)}`;
   const response = await fetch(url);
   const raw = await response.text();
@@ -61,14 +62,63 @@ async function translateSegment(text, source, target) {
     throw new Error(`MyMemory error ${response.status}: ${raw}`);
   }
 
-  let data;
   try {
-    data = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch (error) {
     throw new Error('MyMemory returned invalid JSON.');
   }
+}
 
+async function translateSegment(text, source, target) {
+  const data = await fetchMyMemory(text, source, target);
   return data?.responseData?.translatedText || '';
+}
+
+function cleanLine(text) {
+  return String(text || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function hasLatin(text) {
+  return /[A-Za-z]/.test(String(text || ''));
+}
+
+function hasArabic(text) {
+  return /[\u0600-\u06FF]/.test(String(text || ''));
+}
+
+function looksBadEnglishExample(text) {
+  const t = cleanLine(text);
+  if (!t || !hasLatin(t)) return true;
+  if (/\[.*?\]/.test(t)) return true;
+  if (/\b(examples? of template|using the same template|same template|in my own situation)\b/i.test(t)) return true;
+  if (/\bleft\s+on\s+in\b/i.test(t)) return true;
+  if (/\b(on|in|at|for|with|to|of|from|by|about)\s+(on|in|at|for|with|to|of|from|by|about)\b/i.test(t)) return true;
+  if (/\b(?:on|in|at|for|with|to|of|from|by|about|the|a|an)\s*[.!?]?$/i.test(t)) return true;
+  const words = (t.match(/[A-Za-z']+/g) || []).length;
+  return words < 3;
+}
+
+function extractMatches(data, limit = 5) {
+  const out = [];
+  const seen = new Set();
+  for (const item of data?.matches || []) {
+    const en = cleanLine(item.segment || item.sourceSegment || item.source || '');
+    const ar = cleanLine(item.translation || item.targetSegment || item.target || '');
+    if (!en || looksBadEnglishExample(en)) continue;
+    // If translation is not Arabic, it is still useful as an English candidate, but the app will translate it later.
+    const key = en.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      en,
+      ar: hasArabic(ar) ? ar : '',
+      quality: item.quality || '',
+      match: item.match || '',
+      source: 'mymemory'
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export default async function handler(req, res) {
@@ -77,10 +127,40 @@ export default async function handler(req, res) {
   }
 
   try {
-    const text = String(req.body?.text || '').trim();
     const source = String(req.body?.source || DEFAULT_SOURCE).trim();
     const target = String(req.body?.target || DEFAULT_TARGET).trim();
 
+    if (Array.isArray(req.body?.items)) {
+      const translated = [];
+      for (const raw of req.body.items) {
+        const text = String(raw?.text || '').trim();
+        if (!text) continue;
+        const chunks = splitText(text);
+        const translatedParts = [];
+        for (const chunk of chunks) {
+          translatedParts.push(await translateSegment(chunk, source, target));
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        translated.push({
+          index: raw?.index,
+          text,
+          ar: translatedParts.join(' ').replace(/\s+/g, ' ').trim()
+        });
+      }
+      return res.status(200).json({ translated });
+    }
+
+    if (String(req.body?.mode || '').toLowerCase() === 'examples') {
+      const query = String(req.body?.query || req.body?.text || '').trim();
+      const limit = Math.max(1, Math.min(10, Number(req.body?.limit || 5)));
+      if (!query) return res.status(400).json({ error: 'No query was provided.' });
+      const data = await fetchMyMemory(query, source, target);
+      const matches = extractMatches(data, limit);
+      const translatedText = data?.responseData?.translatedText || '';
+      return res.status(200).json({ translatedText, matches });
+    }
+
+    const text = String(req.body?.text || '').trim();
     if (!text) {
       return res.status(400).json({ error: 'No text was provided.' });
     }

@@ -135,25 +135,9 @@
 
   async function translatePhraseInContext(phrase, contextEn = '') {
     phrase = String(phrase || '').trim();
-    contextEn = cleanLine(contextEn);
     if (!phrase) return '';
-    try {
-      const res = await fetch('/api/lara-translate', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(getLaraPayload({
-          text: `Phrase: ${phrase}\nMovie context: ${contextEn}`,
-          instructions: [
-            'Return only the short natural Arabic meaning of the English phrase in this movie context.',
-            'Do not translate the whole context sentence.',
-            'Do not add explanations, labels, notes, or quotation marks.',
-            'Use concise Arabic suitable for a flashcard.'
-          ]
-        }))
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.translatedText) return String(data.translatedText).trim();
-    } catch (e) { console.warn('Lara phrase translation failed:', e); }
+    // Lara is now reserved for subtitle-line translation only.
+    // Saved words / phrases use MyMemory so they do not ask for Lara keys.
     try { return await translateMyMemory(phrase); } catch { return ''; }
   }
 
@@ -404,7 +388,7 @@
     }
 
     // For unknown templates, do NOT create mechanical examples by random word replacement.
-    // Bad examples are worse than no examples. The user can use "Improve examples" after Lara is configured.
+    // Bad examples are worse than no examples. The user can use "Improve examples" to rebuild them with MyMemory.
     return [];
   }
 
@@ -463,22 +447,13 @@
 
   async function translateTemplateMeaning(template, contextEn = '') {
     if (!template?.pattern) return '';
-    try {
-      const res = await fetch('/api/lara-translate', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(getLaraPayload({
-          text: `Template: ${template.pattern}\nUsage: ${template.usageEn || ''}\nMovie context: ${contextEn}`,
-          instructions: [
-            'Return only a concise Arabic explanation of when to use this English sentence template.',
-            'Do not translate the whole movie context.',
-            'Keep it suitable for a flashcard.'
-          ]
-        }))
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.translatedText) return String(data.translatedText).trim();
-    } catch (e) { console.warn('Lara template translation failed:', e); }
-    return template.usageAr || '';
+    // Lara is now used only for translating subtitle lines.
+    // For template usage, prefer the human-written Arabic usage; otherwise use MyMemory.
+    if (template.usageAr) return template.usageAr;
+    if (template.usageEn) {
+      try { return await translateMyMemory(template.usageEn); } catch {}
+    }
+    return '';
   }
 
 
@@ -525,7 +500,7 @@
     return clean.slice(0, 3);
   }
 
-  function parseLaraExamples(text) {
+  function parseMyMemoryExamples(text) {
     const raw = String(text || '').trim();
     if (!raw) return [];
     let jsonText = raw;
@@ -534,7 +509,10 @@
     try {
       const arr = JSON.parse(jsonText);
       if (Array.isArray(arr)) {
-        return arr.map(x => ({ en: cleanLine(x.en || x.english || ''), ar: cleanLine(x.ar || x.arabic || '') })).filter(x => x.en);
+        return arr.map(x => ({
+          en: cleanLine(x.en || x.english || x.segment || ''),
+          ar: cleanLine(x.ar || x.arabic || x.translation || '')
+        })).filter(x => x.en);
       }
     } catch {}
     return raw.split(/\n+/).map(line => {
@@ -544,35 +522,159 @@
     }).filter(x => x.en && /[a-z]/i.test(x.en)).slice(0, 3);
   }
 
-  async function translateTemplateExamplesWithLara(examples) {
+  function templateSearchQueries(template, contextEn = '') {
+    const pattern = cleanLine(template?.pattern || '');
+    const source = cleanLine(contextEn || template?.source || '');
+    const slot = cleanLine(template?.slot || '').replace(/[?.!,]+$/g, '');
+    const lower = pattern.toLowerCase();
+    const queries = [];
+    const add = q => {
+      q = cleanLine(q || '').replace(/\s+/g, ' ').trim();
+      if (!q || q.length < 5) return;
+      if (!queries.some(x => x.toLowerCase() === q.toLowerCase())) queries.push(q);
+    };
+
+    // Query MyMemory with complete, natural phrases only. Avoid placeholders.
+    if (source && !looksLikeBadTemplateExample(source)) add(source);
+    if (slot && slot.split(/\s+/).length >= 3 && !looksLikeBadTemplateExample(slot)) add(slot);
+
+    if (/how many times have i told you not to/i.test(lower)) {
+      add('How many times have I told you not to touch my phone?');
+      add('How many times have I told you not to interrupt me?');
+    } else if (/shouldn['’]?t you be/i.test(lower)) {
+      add("Shouldn't you be at work by now?");
+      add("Shouldn't you be getting ready?");
+    } else if (/there(?:'s| is| are).*left/i.test(lower)) {
+      add("There's some coffee left.");
+      add("There's some pizza left in the fridge.");
+    } else if (/besides.*i wanna/i.test(lower)) {
+      add('Besides, I wanna finish this first.');
+      add('Besides, I wanna talk to him first.');
+    } else if (/you like/i.test(lower)) {
+      add('You like this song?');
+      add('You like horror movies?');
+    } else if (/i love/i.test(lower)) {
+      add('I love this show!');
+      add('I love that idea!');
+    } else if (/i did everything i could to/i.test(lower)) {
+      add('I did everything I could to help him.');
+      add('I did everything I could to fix it.');
+    } else if (/worked out|figured out/i.test(lower)) {
+      add("I'm sure by now you've figured out what happened.");
+      add("I'm sure by now you've worked out the truth.");
+    } else if (/i wanna/i.test(lower)) {
+      add('I wanna finish this first.');
+      add('I wanna talk to you for a minute.');
+    } else if (/i (?:need|have) to/i.test(lower)) {
+      add('I need to leave early today.');
+      add('I have to finish this before tomorrow.');
+    }
+    return queries.slice(0, 5);
+  }
+
+  function matchesTemplatePattern(pattern, text) {
+    pattern = cleanLine(pattern || '').toLowerCase();
+    text = cleanLine(text || '');
+    if (!text || looksLikeBadTemplateExample(text)) return false;
+    if (/how many times have i told you not to/i.test(pattern)) return /^how many times have i told you not to\s+.+[?.!]?$/i.test(text);
+    if (/shouldn['’]?t you be/i.test(pattern)) return /^(?:hey,?\s*)?should(?:n['’]t| not) you be\s+.+[?.!]?$/i.test(text);
+    if (/there(?:'s| is| are).*left/i.test(pattern)) return /^(?:there['’]?s|there is|there are)\s+.+\s+left(?:\s+(?:in|for|after|if)\s+.+)?[.!?]?$/i.test(text) && !/\bleft\s+on\s+in\b/i.test(text);
+    if (/besides.*i wanna/i.test(pattern)) return /^(?:besides,?\s*)?i (?:wanna|want to)\s+.+[.!?]?$/i.test(text);
+    if (/you like/i.test(pattern)) return /^(?:oh,?\s*)?you like\s+.+[?.!]?$/i.test(text);
+    if (/i love/i.test(pattern)) return /^i love\s+.+[!.]?$/i.test(text);
+    if (/i did everything i could to/i.test(pattern)) return /^i did everything i could to\s+.+[.!?]?$/i.test(text);
+    if (/worked out|figured out/i.test(pattern)) return /(?:worked|figured) out\s+.+[.!?]?$/i.test(text);
+    if (/i wanna/i.test(pattern)) return /^i (?:wanna|want to)\s+.+[.!?]?$/i.test(text);
+    if (/i (?:need|have) to/i.test(pattern)) return /^i\s+(?:need|have) to\s+.+[.!?]?$/i.test(text);
+    return false;
+  }
+
+  function examplesFromCurrentSubtitles(template, contextEn = '') {
+    if (!Array.isArray(state.subtitles) || !state.subtitles.length) return [];
+    const ctx = cleanLine(contextEn || template?.source || '').toLowerCase();
+    const seen = new Set();
+    const out = [];
+    for (const sub of state.subtitles) {
+      const en = cleanLine(sub?.en || '').replace(/^[-–—]\s*/, '');
+      if (!en || en.toLowerCase() === ctx) continue;
+      if (!matchesTemplatePattern(template?.pattern || '', en)) continue;
+      const key = en.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ en, ar: cleanLine(sub?.ar || ''), source: 'subtitle' });
+      if (out.length >= 3) break;
+    }
+    return out;
+  }
+
+  async function translateTemplateExamplesWithMyMemory(examples) {
     const list = sanitizeTemplateExamples(examples || []);
     if (!list.length) return [];
-
-    const need = list
-      .map((ex, index) => ({ ex, index }))
-      .filter(x => !x.ex.ar || looksLikeTemplatePlaceholderArabic(x.ex.ar));
-
+    const need = list.map((ex, index) => ({ ex, index })).filter(x => !x.ex.ar || looksLikeTemplatePlaceholderArabic(x.ex.ar));
     if (!need.length) return list.slice(0, 3);
-
     try {
-      const translated = await translateLaraItems(need.map(x => ({ index: x.index, text: x.ex.en })));
+      const translated = await translateMyMemoryItems(need.map(x => ({ index: x.index, text: x.ex.en })));
       for (const row of translated || []) {
         const idx = Number(row.index);
         if (list[idx] && row.ar) list[idx].ar = cleanLine(row.ar);
       }
     } catch (e) {
-      console.warn('Lara template example translation failed:', e);
+      console.warn('MyMemory template example translation failed:', e);
+      for (const row of need) {
+        try { row.ex.ar = await translateMyMemory(row.ex.en); } catch {}
+      }
     }
     return list.slice(0, 3);
   }
 
-  async function generateTemplateExamplesWithLara(template, contextEn = '') {
+  async function fetchTemplateExamplesFromMyMemory(template, contextEn = '') {
+    const queries = templateSearchQueries(template, contextEn);
+    if (!queries.length) return [];
+    const examples = [];
+    const seen = new Set();
+    for (const query of queries) {
+      try {
+        const res = await fetch('/api/mymemory-translate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ mode: 'examples', query, source: 'en', target: 'ar', limit: 5 })
+        });
+        const data = await res.json().catch(() => ({}));
+        const matches = Array.isArray(data.matches) ? data.matches : [];
+        for (const m of matches) {
+          const en = cleanLine(m.en || m.segment || '');
+          const ar = cleanLine(m.ar || m.translation || '');
+          if (!en || looksLikeBadTemplateExample(en)) continue;
+          // Prefer examples that actually match the same template. If MyMemory gives an unrelated match, ignore it.
+          if (!matchesTemplatePattern(template?.pattern || '', en) && !templateSearchQueries({ pattern: template?.pattern || '' }).some(q => en.toLowerCase().includes(q.toLowerCase().replace(/[?.!]/g, '').slice(0, 12)))) continue;
+          const key = en.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          examples.push({ en, ar, source: 'mymemory' });
+          if (examples.length >= 3) return examples;
+        }
+      } catch (e) {
+        console.warn('MyMemory example lookup failed:', e);
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    return examples;
+  }
+
+  async function generateTemplateExamplesWithMyMemory(template, contextEn = '') {
     if (!template?.pattern) return [];
-    // Lara is a translation engine, not a sentence generator. To avoid broken English,
-    // the app first creates safe daily-life English examples from controlled templates,
-    // then uses Lara to translate those examples naturally into Arabic.
-    const curated = sanitizeTemplateExamples(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''), template.pattern, contextEn || template.source || '');
-    return await translateTemplateExamplesWithLara(curated);
+
+    // Priority:
+    // 1) Real matching lines already present in the uploaded subtitle file.
+    // 2) MyMemory translation-memory matches, only if they are complete English sentences and match the same template.
+    // 3) A small human-curated daily-life pack for the known template, translated with MyMemory.
+    let candidates = [];
+    candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
+    if (candidates.length < 3) candidates = candidates.concat(await fetchTemplateExamplesFromMyMemory(template, contextEn));
+    if (candidates.length < 3) candidates = candidates.concat(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''));
+
+    const clean = sanitizeTemplateExamples(candidates, template.pattern, contextEn || template.source || '');
+    return await translateTemplateExamplesWithMyMemory(clean);
   }
 
   async function ensureNaturalTemplateExamples(template, contextEn = '', force = false) {
@@ -584,12 +686,10 @@
       return { ...template, examples: baseExamples };
     }
 
-    if (force || baseExamples.length < 3 || hasBadOriginal) {
-      const fresh = sanitizeTemplateExamples(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''), template.pattern, contextEn || template.source || '');
-      if (fresh.length) baseExamples = fresh;
-    }
+    const fresh = await generateTemplateExamplesWithMyMemory(template, contextEn || template.source || '');
+    if (fresh.length) baseExamples = fresh;
 
-    const translatedExamples = await translateTemplateExamplesWithLara(baseExamples);
+    const translatedExamples = await translateTemplateExamplesWithMyMemory(baseExamples);
     const finalExamples = sanitizeTemplateExamples(translatedExamples.length ? translatedExamples : baseExamples, template.pattern, contextEn || template.source || '');
     return { ...template, examples: finalExamples };
   }
@@ -597,7 +697,7 @@
   async function refreshTemplateExamplesByIndex(index) {
     const item = state.savedWords[Number(index)];
     if (!item || item.kind !== 'template') return toast('Template not found');
-    setStatus('Creating natural examples and translating them with Lara...');
+    setStatus('Finding natural examples and translating them with MyMemory...');
     const template = {
       pattern: item.word,
       source: item.contextEn || '',
@@ -612,8 +712,8 @@
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast('Examples updated and translated');
-    setStatus('Template examples updated, translated, and synced');
+    toast('Examples updated with MyMemory');
+    setStatus('Template examples updated with MyMemory and synced');
   }
 
   async function refreshAllTemplateExamples() {
@@ -621,7 +721,7 @@
       .map((item, index) => ({ item, index }))
       .filter(x => x.item && x.item.kind === 'template');
     if (!templateIndexes.length) return toast('No saved templates yet');
-    setStatus('Improving templates and translating examples with Lara...');
+    setStatus('Improving templates and translating examples with MyMemory...');
     let count = 0;
     for (const { item, index } of templateIndexes) {
       const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
@@ -634,8 +734,8 @@
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast(`${count} template examples improved and translated`);
-    setStatus('Natural translated examples saved to cloud sync queue');
+    toast(`${count} template examples improved with MyMemory`);
+    setStatus('Natural MyMemory examples saved to cloud sync queue');
   }
 
   const CLOUD_CONFIG = {
@@ -1347,6 +1447,13 @@
     return data.translatedText || '';
   }
 
+  async function translateMyMemoryItems(items) {
+    const res = await fetch('/api/mymemory-translate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ items, source:'en', target:'ar' }) });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    return data.translated || [];
+  }
+
   const LARA_SETTINGS_CLOUD_WORD = '__lara_settings__';
 
   function getLaraConfig() {
@@ -1738,7 +1845,7 @@
       if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
         const displayExamples = x.kind === 'template' ? sanitizeTemplateExamples(x.examples || [], x.word, x.contextEn || '') : (Array.isArray(x.examples) ? x.examples.slice(0,3) : []);
-        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples</b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">MyMemory / subtitle</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
