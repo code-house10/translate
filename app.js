@@ -860,17 +860,9 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   }
 
   async function extractTemplateFromLineAsync(line) {
-    const local = extractTemplateFromLine(line);
-    // Known templates are reliable and fast. For broad fallback templates, ask AI to improve the pattern if available.
-    if (local?.pattern && !/^AI-ready/.test(String(local.rule || ''))) return local;
-    try {
-      const ai = await fetchTemplateFromChatLlm(line);
-      if (ai?.pattern) return ai;
-    } catch (e) {
-      console.warn('AI template extraction failed:', e);
-      if (e?.message) setStatus(e.message);
-    }
-    return local;
+    // Chats-LLM is no longer used. The app extracts templates locally,
+    // then uses MyMemory to find/translate natural examples.
+    return extractTemplateFromLine(line);
   }
 
   async function translateTemplateMeaning(template, contextEn = '') {
@@ -997,7 +989,134 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
       add('I need to leave early today.');
       add('I have to finish this before tomorrow.');
     }
-    return queries.slice(0, 5);
+    // General MyMemory queries: use the original subtitle, fixed template prefix, and safe filled examples.
+    const fixedPrefix = pattern.replace(/\[[^\]]+\]/g, '').replace(/\s+([?.!,])/g, '$1').replace(/\s+/g, ' ').trim();
+    if (fixedPrefix && fixedPrefix.split(/\s+/).length >= 3) add(fixedPrefix.replace(/[?.!]+$/g, ''));
+    makeGenericTemplateExamples(template, source || pattern).forEach(ex => add(ex.en));
+    makeDailyTemplateExamples(pattern, source).forEach(ex => add(ex.en));
+
+    return queries.slice(0, 10);
+  }
+
+  function fillTemplatePattern(pattern, replacement) {
+    let out = cleanLine(pattern || '');
+    const rep = cleanLine(replacement || 'something');
+    out = out.replace(/\[[^\]]+\]/g, rep);
+    out = out.replace(/\s+([?.!,])/g, '$1').replace(/\s+/g, ' ').trim();
+    out = out.replace(/\bI wanna to\b/gi, 'I wanna').replace(/\bI want to to\b/gi, 'I want to');
+    if (!/[.!?]$/.test(out)) out += /^(Should|Can|Could|Would|Will|Do|Did|Does|Have|Has|Are|Is|Am|Why|What|Where|When|How|Who)\b/i.test(out) ? '?' : '.';
+    return out;
+  }
+
+  function templateFixedWords(pattern) {
+    return tokenize(String(pattern || '').replace(/\[[^\]]+\]/g, ' '))
+      .map(w => w.toLowerCase())
+      .filter(w => !['something','someone','somewhere','anything','anyone','anywhere','thing','do','doing'].includes(w));
+  }
+
+  function templateMatchLoose(pattern, text) {
+    const words = templateFixedWords(pattern);
+    const t = cleanLine(text || '').toLowerCase();
+    if (!words.length) return false;
+    let hits = 0;
+    for (const w of words) {
+      if (new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(t)) hits++;
+    }
+    return hits >= Math.min(words.length, Math.max(2, Math.ceil(words.length * 0.55)));
+  }
+
+  function isUsableTemplateExampleForPattern(pattern, text) {
+    if (!text || looksLikeBadTemplateExample(text)) return false;
+    if (matchesTemplatePattern(pattern, text)) return true;
+    return templateMatchLoose(pattern, text);
+  }
+
+  function makeGenericTemplateExamples(template, contextEn = '') {
+    const pattern = cleanLine(template?.pattern || template || '');
+    if (!pattern || !/\[[^\]]+\]/.test(pattern)) return [];
+    const lower = pattern.toLowerCase();
+    const examples = [];
+    const add = replacement => {
+      const en = fillTemplatePattern(pattern, replacement);
+      if (!looksLikeBadTemplateExample(en) && isUsableTemplateExampleForPattern(pattern, en)) examples.push({ en, ar: '', source: 'mymemory-generated-query' });
+    };
+
+    if (/\[do something\]/i.test(pattern)) {
+      if (/^i\s+(?:need|have) to/i.test(lower)) {
+        ['leave early today', 'finish this before tomorrow', 'call my manager after work'].forEach(add);
+      } else if (/^i\s+(?:wanna|want to)/i.test(lower)) {
+        ['finish this before I leave', 'talk to you for a minute', 'make sure everything is okay'].forEach(add);
+      } else if (/^you\s+(?:need|have) to/i.test(lower)) {
+        ['check your email', 'call him back', 'finish this before the meeting'].forEach(add);
+      } else if (/^should/i.test(lower)) {
+        ['call him now', 'wait outside', 'talk to her first'].forEach(add);
+      } else if (/^can|^could/i.test(lower)) {
+        ['help me with this', 'send me the file', 'call me later'].forEach(add);
+      } else {
+        ['finish this first', 'talk to him later', 'check it again'].forEach(add);
+      }
+    } else if (/\[somewhere\]|\[place\]/i.test(pattern)) {
+      ['at work by now', 'on your way home', 'in the meeting already'].forEach(add);
+    } else if (/\[someone\]/i.test(pattern)) {
+      ['my brother', 'your teacher', 'the new manager'].forEach(add);
+    } else if (/\[thing\]|\[something\]/i.test(pattern)) {
+      if (/there(?:'s| is| are).*left/i.test(lower)) {
+        ['some coffee', 'some pizza in the fridge', 'some money after paying the bills'].forEach(add);
+      } else if (/you like/i.test(lower)) {
+        ['this song', 'spicy food', 'that place'].forEach(add);
+      } else if (/i love/i.test(lower)) {
+        ['this idea', 'the way you explain things', 'that place'].forEach(add);
+      } else if (/problem/i.test(lower)) {
+        ['with the app', 'with that', 'with me'].forEach(add);
+      } else if (/plan|plans/i.test(lower)) {
+        ['for tonight', 'for the weekend', 'for Eid yet'].forEach(add);
+      } else {
+        ['this idea', 'the problem', 'what happened yesterday'].forEach(add);
+      }
+    }
+
+    const seen = new Set();
+    return examples.filter(ex => {
+      const key = ex.en.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 3);
+  }
+
+  async function fetchMyMemoryExamplesPayload(query, limit = 5) {
+    try {
+      const res = await fetch('/api/mymemory-translate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ mode: 'examples', query, source: 'en', target: 'ar', limit })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `MyMemory proxy failed (${res.status})`);
+      return data;
+    } catch (proxyError) {
+      // Direct browser fallback for cases where the user uploaded HTML only.
+      // MyMemory GET uses q + langpair exactly as documented.
+      try {
+        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(query)}&langpair=${encodeURIComponent('en|ar')}`;
+        const res = await fetch(url);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.responseDetails || `MyMemory direct failed (${res.status})`);
+        return {
+          translatedText: data?.responseData?.translatedText || '',
+          matches: (data?.matches || []).map(m => ({
+            en: cleanLine(m.segment || m.sourceSegment || m.source || ''),
+            ar: cleanLine(m.translation || m.targetSegment || m.target || ''),
+            match: m.match || '',
+            quality: m.quality || '',
+            source: 'mymemory-direct'
+          }))
+        };
+      } catch (directError) {
+        console.warn('MyMemory proxy/direct lookup failed:', proxyError, directError);
+        return { matches: [], translatedText: '' };
+      }
+    }
   }
 
   function matchesTemplatePattern(pattern, text) {
@@ -1037,57 +1156,9 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
 
 
   async function fetchTemplateExamplesFromChatLlm(template, contextEn = '') {
-    if (!template?.pattern) return [];
-    const cfg = getChatLlmConfig();
-    const payload = {
-      pattern: template.pattern,
-      contextEn: contextEn || template.source || '',
-      slot: template.slot || '',
-      usageEn: template.usageEn || '',
-      usageAr: template.usageAr || '',
-      apiKey: cfg.apiKey || '',
-      model: chatLlmFreeAlias(cfg.model || '')
-    };
-    try {
-      const res = await fetch('/api/chats-llm-template-examples', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
-      const examples = Array.isArray(data.examples) ? data.examples : [];
-      return sanitizeTemplateExamples(examples.map(ex => ({
-        en: cleanLine(ex.en || ''),
-        ar: cleanLine(ex.ar || ''),
-        source: 'ai-proxy',
-        slot: cleanLine(ex.slot || '')
-      })), template.pattern, contextEn || template.source || '');
-    } catch (e) {
-      const msg = String(e?.message || '');
-      console.warn('Chats-LLM template examples proxy failed:', e);
-      if (/proxy is missing|failed \(404\)|404/i.test(msg)) {
-        try {
-          setStatus('AI examples proxy is missing. Trying direct Chats-LLM connection from the browser...');
-          const parsed = await callChatsLlmDirect(buildTemplateExamplesPrompt(template, contextEn), cfg, { temperature: 0.35, maxTokens: 900 });
-          const examples = Array.isArray(parsed?.examples) ? parsed.examples : [];
-          const clean = sanitizeTemplateExamples(examples.map(ex => ({
-            en: cleanLine(ex.en || ex.english || ''),
-            ar: cleanLine(ex.ar || ex.arabic || ''),
-            source: 'ai-direct',
-            slot: cleanLine(ex.slot || ex.replacement || '')
-          })), template.pattern, contextEn || template.source || '');
-          if (clean.length) return clean;
-          throw new Error('Direct AI returned no valid examples.');
-        } catch (directError) {
-          console.warn('Direct Chats-LLM template examples failed:', directError);
-          setStatus(String(directError?.message || 'AI direct connection failed.'));
-          return [];
-        }
-      }
-      if (/rejected|API key|missing|rate limit|limit exceeded/i.test(msg)) setStatus(msg || 'AI examples need setup.');
-      return [];
-    }
+    // Chats-LLM is intentionally disabled for template examples.
+    // Template examples now use MyMemory translation-memory lookup + MyMemory translation only.
+    return [];
   }
 
   async function translateTemplateExamplesWithMyMemory(examples) {
@@ -1115,31 +1186,32 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     if (!queries.length) return [];
     const examples = [];
     const seen = new Set();
+    const pattern = template?.pattern || '';
+
+    const addCandidate = (en, ar = '', source = 'mymemory') => {
+      en = cleanLine(en || '');
+      ar = cleanLine(ar || '');
+      if (!en || looksLikeBadTemplateExample(en)) return;
+      if (!isUsableTemplateExampleForPattern(pattern, en)) return;
+      const key = en.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      examples.push({ en, ar, source });
+    };
+
     for (const query of queries) {
-      try {
-        const res = await fetch('/api/mymemory-translate', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ mode: 'examples', query, source: 'en', target: 'ar', limit: 5 })
-        });
-        const data = await res.json().catch(() => ({}));
-        const matches = Array.isArray(data.matches) ? data.matches : [];
-        for (const m of matches) {
-          const en = cleanLine(m.en || m.segment || '');
-          const ar = cleanLine(m.ar || m.translation || '');
-          if (!en || looksLikeBadTemplateExample(en)) continue;
-          // Prefer examples that actually match the same template. If MyMemory gives an unrelated match, ignore it.
-          if (!matchesTemplatePattern(template?.pattern || '', en) && !templateSearchQueries({ pattern: template?.pattern || '' }).some(q => en.toLowerCase().includes(q.toLowerCase().replace(/[?.!]/g, '').slice(0, 12)))) continue;
-          const key = en.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          examples.push({ en, ar, source: 'mymemory' });
-          if (examples.length >= 3) return examples;
-        }
-      } catch (e) {
-        console.warn('MyMemory example lookup failed:', e);
+      const data = await fetchMyMemoryExamplesPayload(query, 8);
+      const matches = Array.isArray(data.matches) ? data.matches : [];
+      for (const m of matches) {
+        addCandidate(m.en || m.segment || '', m.ar || m.translation || '', m.source || 'mymemory');
+        if (examples.length >= 3) return examples;
       }
-      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // If the TM does not return enough reusable examples, keep the complete query itself.
+      // MyMemory will still be used to translate it to Arabic in translateTemplateExamplesWithMyMemory().
+      addCandidate(query, '', 'mymemory-query');
+      if (examples.length >= 3) return examples;
+      await new Promise(resolve => setTimeout(resolve, 220));
     }
     return examples;
   }
@@ -1147,16 +1219,16 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   async function generateTemplateExamplesWithMyMemory(template, contextEn = '') {
     if (!template?.pattern) return [];
 
-    // Priority:
-    // 1) Chats-LLM creates fresh, complete daily-life examples by filling the [slot] in the template.
-    // 2) Real matching lines already present in the uploaded subtitle file.
-    // 3) MyMemory translation-memory matches if they are complete English sentences and match the same template.
-    // 4) A small human-curated daily-life pack for the known template, translated with MyMemory.
+    // Priority now:
+    // 1) Real matching lines already present in the uploaded subtitle file.
+    // 2) MyMemory translation-memory matches for complete English examples.
+    // 3) Safe daily-life examples built from the template, then translated with MyMemory.
+    // Lara is reserved for subtitle-line translation only.
     let candidates = [];
-    candidates = candidates.concat(await fetchTemplateExamplesFromChatLlm(template, contextEn));
-    if (candidates.length < 3) candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
+    candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
     if (candidates.length < 3) candidates = candidates.concat(await fetchTemplateExamplesFromMyMemory(template, contextEn));
     if (candidates.length < 3) candidates = candidates.concat(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''));
+    if (candidates.length < 3) candidates = candidates.concat(makeGenericTemplateExamples(template, contextEn || template.source || ''));
 
     const clean = sanitizeTemplateExamples(candidates, template.pattern, contextEn || template.source || '');
     return await translateTemplateExamplesWithMyMemory(clean);
@@ -1182,7 +1254,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   async function refreshTemplateExamplesByIndex(index) {
     const item = state.savedWords[Number(index)];
     if (!item || item.kind !== 'template') return toast('Template not found');
-    setStatus('Generating natural daily examples with AI...');
+    setStatus('Generating natural daily examples with MyMemory...');
     const template = {
       pattern: item.word,
       source: item.contextEn || '',
@@ -1197,8 +1269,8 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast('Examples updated with AI');
-    setStatus('Template examples updated with AI and synced');
+    toast('Examples updated with MyMemory');
+    setStatus('Template examples updated with MyMemory and synced');
   }
 
   async function refreshAllTemplateExamples() {
@@ -1206,7 +1278,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
       .map((item, index) => ({ item, index }))
       .filter(x => x.item && x.item.kind === 'template');
     if (!templateIndexes.length) return toast('No saved templates yet');
-    setStatus('Improving templates with AI examples...');
+    setStatus('Improving templates with MyMemory examples...');
     let count = 0;
     for (const { item, index } of templateIndexes) {
       const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
@@ -1219,8 +1291,8 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast(`${count} template examples improved with AI`);
-    setStatus('AI template examples saved to cloud sync queue');
+    toast(`${count} template examples improved with MyMemory`);
+    setStatus('MyMemory template examples saved to cloud sync queue');
   }
 
   const CLOUD_CONFIG = {
@@ -1926,17 +1998,40 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   }
 
   async function translateMyMemory(text) {
-    const res = await fetch('/api/mymemory-translate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ text, source:'en', target:'ar' }) });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    return data.translatedText || '';
+    text = String(text || '').trim();
+    if (!text) return '';
+    try {
+      const res = await fetch('/api/mymemory-translate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ text, source:'en', target:'ar' }) });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      return data.translatedText || '';
+    } catch (proxyError) {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent('en|ar')}`;
+      const res = await fetch(url);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.responseDetails || proxyError?.message || 'MyMemory translation failed');
+      return data?.responseData?.translatedText || '';
+    }
   }
 
   async function translateMyMemoryItems(items) {
-    const res = await fetch('/api/mymemory-translate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ items, source:'en', target:'ar' }) });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    return data.translated || [];
+    try {
+      const res = await fetch('/api/mymemory-translate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ items, source:'en', target:'ar' }) });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      return data.translated || [];
+    } catch (proxyError) {
+      const translated = [];
+      for (const raw of items || []) {
+        const text = String(raw?.text || '').trim();
+        if (!text) continue;
+        let ar = '';
+        try { ar = await translateMyMemory(text); } catch {}
+        translated.push({ index: raw?.index, text, ar });
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      return translated;
+    }
   }
 
   const LARA_SETTINGS_CLOUD_WORD = '__lara_settings__';
@@ -2061,7 +2156,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     const cfg = getChatLlmConfig();
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = cfg.apiKey;
     if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model;
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Add the API key once, or set CHATS_LLM_API_KEY in Vercel. Free models only are used. Leave model empty for auto-select.';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'No AI key is needed now. Template examples use MyMemory only; Lara remains for subtitle translation.';
     openModal('aiTemplateModal');
   }
 
@@ -2290,7 +2385,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     if (!item) return;
     setStatus('Extracting sentence template...');
     const template = await extractTemplateFromLineAsync(item.en);
-    if (!template || !template.pattern) return toast('No useful template found. Add AI examples key or try a longer line.');
+    if (!template || !template.pattern) return toast('No useful template found. Try a longer line or use Extract templates on the full SRT.');
     setStatus('Saving sentence template...');
     const contextEn = cleanLine(item.en);
     const contextAr = item.ar || '';
@@ -2435,7 +2530,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
       if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
         const displayExamples = x.kind === 'template' ? sanitizeTemplateExamples(x.examples || [], x.word, x.contextEn || '') : (Array.isArray(x.examples) ? x.examples.slice(0,3) : []);
-        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">AI / subtitle / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">Subtitle / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
@@ -2643,7 +2738,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
           state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
         }
         if (restoredLara && $('laraSettingsStatus')) $('laraSettingsStatus').textContent = 'Lara settings restored from cloud.';
-        if (restoredChatLlm && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'AI examples settings restored from cloud.';
+        if (restoredChatLlm && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings restored but not used. MyMemory is now used for template examples.';
         writeJSON('jm_saved_lines', state.savedLines);
         writeJSON('jm_saved_words', state.savedWords);
         saveState();
@@ -3009,16 +3104,11 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
   };
 
   if ($('saveChatLlmSettingsBtn')) $('saveChatLlmSettingsBtn').onclick = async () => {
-    const cfg = saveChatLlmConfigToLocal();
-    if (!cfg.apiKey) { $('chatLlmSettingsStatus').textContent = 'Please enter the Chats-LLM API key first.'; return toast('Missing AI key'); }
-    $('chatLlmSettingsStatus').textContent = 'Saving AI examples settings locally and to Supabase...';
-    const ok = await saveChatLlmSettingsToCloud({ silent: true });
-    $('chatLlmSettingsStatus').textContent = ok ? 'AI examples key saved locally and in Supabase.' : 'AI examples key saved locally, but cloud sync failed.';
-    toast(ok ? 'AI key saved to cloud' : 'AI key saved locally');
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'No AI key is needed now. Template examples use MyMemory, and saved templates still sync to Supabase.';
+    toast('No AI key needed');
   };
   if ($('testChatLlmSettingsBtn')) $('testChatLlmSettingsBtn').onclick = async () => {
-    const cfg = saveChatLlmConfigToLocal();
-    $('chatLlmSettingsStatus').textContent = cfg.apiKey ? 'Testing AI template examples...' : 'Testing AI template examples using Vercel env key if available...';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Testing MyMemory template examples...';
     try {
       const sampleTemplate = {
         pattern: 'How many times have I told you not to [do something]?',
@@ -3026,23 +3116,22 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
         slot: 'wake me up like that',
         usageEn: 'Use it when someone keeps doing something you warned them not to do.'
       };
-      const examples = await fetchTemplateExamplesFromChatLlm(sampleTemplate, sampleTemplate.source);
-      await saveChatLlmSettingsToCloud({ silent: true });
-      $('chatLlmSettingsStatus').textContent = examples.length ? `AI works. Sample: ${examples[0].en} — ${examples[0].ar}` : 'AI responded, but no valid example was returned.';
-      toast(examples.length ? 'AI examples test passed' : 'No valid AI examples');
+      const examples = await generateTemplateExamplesWithMyMemory(sampleTemplate, sampleTemplate.source);
+      if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = examples.length ? `MyMemory works. Sample: ${examples[0].en} — ${examples[0].ar || 'Arabic translation pending'}` : 'MyMemory returned no valid examples. Try again later.';
+      toast(examples.length ? 'MyMemory examples test passed' : 'No valid examples');
     } catch (e) {
-      $('chatLlmSettingsStatus').textContent = e.message || String(e);
-      toast('AI examples test failed');
+      if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = e.message || String(e);
+      toast('MyMemory examples test failed');
     }
   };
   if ($('clearChatLlmSettingsBtn')) $('clearChatLlmSettingsBtn').onclick = async () => {
     localStorage.removeItem('jm_chats_llm_api_key'); localStorage.removeItem('jm_chats_llm_model');
-    $('chatLlmKeyInput').value = ''; $('chatLlmModelInput').value = '';
-    $('chatLlmSettingsStatus').textContent = 'AI examples settings cleared locally. Syncing removal to Supabase...';
-    const ok = await syncSavedItemsToCloud({ silent: true, reason: 'chats-llm-clear' });
-    $('chatLlmSettingsStatus').textContent = ok ? 'AI examples settings cleared locally and from Supabase.' : 'Local AI settings cleared, but cloud sync failed.';
-    toast('AI key cleared');
+    if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = '';
+    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = '';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings cleared locally. MyMemory does not require a key.';
+    toast('Old AI settings cleared');
   };
+
 
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
   el.movie.addEventListener('waiting', () => { if (state.playerType === 'html5') setStatus('Buffering video...'); });

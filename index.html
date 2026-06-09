@@ -86,7 +86,7 @@
         <button id="menuAzure">Translate all with Azure</button>
         <button id="menuLaraAll">Translate all with Lara</button>
         <button id="menuLaraSettings">Lara settings</button>
-        <button id="menuAiTemplateSettings">AI examples settings</button>
+        <button id="menuAiTemplateSettings">Template examples source</button>
         <button id="menuSavedWords">Saved words</button>
         <button id="menuSavedPhrases">Saved phrases</button>
         <button id="menuSavedTemplates">Saved templates</button>
@@ -173,14 +173,13 @@
 
   <div id="aiTemplateModal" class="modal hidden">
     <div class="modal-card">
-      <div class="modal-head"><b>AI Template Examples settings</b><button data-close-modal="aiTemplateModal">×</button></div>
-      <p class="settings-hint">Use Chats-LLM free models only to extract reusable templates from subtitle lines, generate complete daily-life examples, and translate the examples to Arabic. Lara remains for subtitle-line translation only. For better security, use Vercel environment variable <b>CHATS_LLM_API_KEY</b>. You can also save the key locally and to Supabase for personal cross-device use.</p>
-      <input id="chatLlmKeyInput" class="text-input" dir="ltr" type="password" placeholder="Chats-LLM API Key" />
-      <input id="chatLlmModelInput" class="text-input" dir="ltr" placeholder="Free model only, optional: openrouter/free" />
+      <div class="modal-head"><b>MyMemory Template Examples</b><button data-close-modal="aiTemplateModal">×</button></div>
+      <p class="settings-hint">Template examples now use MyMemory only. The app searches MyMemory translation memory for complete English examples, then uses MyMemory again to translate the examples to Arabic. Lara remains for subtitle-line translation only. No Chats-LLM key is required.</p>
+      <input id="chatLlmKeyInput" class="text-input hidden" dir="ltr" type="password" placeholder="Not needed" />
+      <input id="chatLlmModelInput" class="text-input hidden" dir="ltr" placeholder="Not needed" />
       <div class="settings-actions">
-        <button id="saveChatLlmSettingsBtn" class="full-btn">Save AI key to cloud</button>
-        <button id="testChatLlmSettingsBtn" class="small-btn">Test examples</button>
-        <button id="clearChatLlmSettingsBtn" class="small-btn danger">Clear</button>
+        <button id="testChatLlmSettingsBtn" class="full-btn">Test MyMemory examples</button>
+        <button id="clearChatLlmSettingsBtn" class="small-btn danger">Clear old AI settings</button>
       </div>
       <p id="chatLlmSettingsStatus" class="menu-status"></p>
     </div>
