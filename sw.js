@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-mymemory-template-examples-v2';
+const CACHE_NAME = 'jungle-movie-mymemory-template-examples-v3-delete-templates';
 const APP_SHELL = [
   './',
   './index.html',

@@ -1295,6 +1295,66 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     setStatus('MyMemory template examples saved to cloud sync queue');
   }
 
+  function persistSavedWordsAfterTemplateEdit() {
+    state.savedWords = state.savedWords
+      .map(normalizeSavedWord)
+      .filter(x => x.word && !isHiddenCloudSettingsItem(x));
+    writeJSON('jm_saved_words', state.savedWords);
+    debounceSave();
+  }
+
+  async function syncTemplateDeletionToCloud(count, itemLabel = 'template') {
+    const ok = await syncSavedItemsToCloud({ silent: true, reason: 'template-delete' });
+    if (ok) {
+      setStatus(`${count} ${itemLabel}${count === 1 ? '' : 's'} deleted from Supabase`);
+      toast(count === 1 ? 'Template deleted and synced' : `${count} templates deleted and synced`);
+    } else {
+      setStatus(`${count} ${itemLabel}${count === 1 ? '' : 's'} deleted locally. Cloud sync failed; try Sync saved items.`);
+      toast('Deleted locally. Cloud sync failed');
+    }
+  }
+
+  async function deleteTemplateByIndex(index) {
+    index = Number(index);
+    const item = state.savedWords[index];
+    if (!item || item.kind !== 'template') return toast('Template not found');
+    const label = cleanLine(item.word || 'this template');
+    if (!confirm(`Delete this saved template?\n\n${label}`)) return;
+    state.savedWords.splice(index, 1);
+    persistSavedWordsAfterTemplateEdit();
+    showSaved('templates');
+    setStatus('Deleting template from Supabase...');
+    await syncTemplateDeletionToCloud(1, 'template');
+  }
+
+  function getSelectedTemplateIndexes() {
+    return [...document.querySelectorAll('[data-template-select]:checked')]
+      .map(input => Number(input.dataset.templateSelect))
+      .filter(index => Number.isInteger(index) && state.savedWords[index]?.kind === 'template');
+  }
+
+  async function deleteSelectedTemplates() {
+    const indexes = [...new Set(getSelectedTemplateIndexes())].sort((a, b) => b - a);
+    if (!indexes.length) return toast('Select one or more templates first');
+    if (!confirm(`Delete ${indexes.length} selected saved template${indexes.length === 1 ? '' : 's'}?`)) return;
+    for (const index of indexes) state.savedWords.splice(index, 1);
+    persistSavedWordsAfterTemplateEdit();
+    showSaved('templates');
+    setStatus('Deleting selected templates from Supabase...');
+    await syncTemplateDeletionToCloud(indexes.length, 'template');
+  }
+
+  async function deleteAllTemplates() {
+    const count = state.savedWords.filter(x => x.kind === 'template').length;
+    if (!count) return toast('No saved templates to delete');
+    if (!confirm(`Delete ALL saved templates?\n\nThis will remove ${count} templates from this device and Supabase. Saved words, phrases, and lines will stay.`)) return;
+    state.savedWords = state.savedWords.filter(x => x.kind !== 'template');
+    persistSavedWordsAfterTemplateEdit();
+    showSaved('templates');
+    setStatus('Deleting all templates from Supabase...');
+    await syncTemplateDeletionToCloud(count, 'template');
+  }
+
   const CLOUD_CONFIG = {
     url: 'https://gyybwibqkasakgwfpkxz.supabase.co',
     key: 'sb_publishable_ZvjDNnkXMcXMrmVQDdWQwg_mSJPKW8L',
@@ -2524,7 +2584,7 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     const wordItems = isTemplates ? state.savedWords.filter(x => x.kind === 'template') : (isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind === 'word'));
     const arr = (isWords || isPhrases || isTemplates) ? wordItems : state.savedLines;
     const countLabel = isTemplates ? 'templates' : (isPhrases ? 'phrases' : (isWords ? 'words' : 'lines'));
-    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small>${isTemplates ? '<div class="saved-actions"><button class="small-btn" data-refresh-all-template-examples>Improve all examples</button></div>' : ''}</div>`;
+    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small>${isTemplates ? '<div class="saved-actions template-clean-actions"><button class="small-btn" data-refresh-all-template-examples>Improve all examples</button><button class="small-btn danger" data-delete-selected-templates>Delete selected</button><button class="small-btn danger" data-delete-all-templates>Delete all templates</button></div><small class="delete-hint">Tick templates you want to remove, or open one template and delete it only. Deletions sync to Supabase.</small>' : ''}</div>`;
     if (!arr.length) { body.innerHTML = header + '<p>No saved items yet.</p>'; openModal('savedModal'); return; }
     body.innerHTML = header + arr.map((x, i) => {
       if (isWords || isPhrases || isTemplates) {
@@ -2534,13 +2594,13 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
-          <summary><span class="saved-type-chip ${x.kind === 'template' ? 'template-chip' : ''}">${label}</span><b dir="ltr">${escapeHtml(x.word)}</b><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></summary>
+          <summary>${x.kind === 'template' ? `<label class="saved-select-check" onclick="event.stopPropagation()" title="Select for deletion"><input type="checkbox" data-template-select="${originalIndex}" /></label>` : ''}<span class="saved-type-chip ${x.kind === 'template' ? 'template-chip' : ''}">${label}</span><b dir="ltr">${escapeHtml(x.word)}</b><span class="due-chip">Due: ${formatDue(x.dueAt)}</span></summary>
           <div class="saved-detail-body">
             ${x.ar ? `<div class="saved-section"><b>Meaning / usage</b><p dir="rtl">${escapeHtml(x.ar)}</p></div>` : ''}
             ${usage}
             ${x.contextEn ? `<div class="saved-section"><b>Movie context</b><p dir="ltr">${escapeHtml(x.contextEn)}</p>${x.contextAr ? `<p dir="rtl" class="ar">${escapeHtml(x.contextAr)}</p>` : ''}</div>` : ''}
             ${examples}
-            <div class="saved-actions">${x.kind === 'template' ? `<button class="small-btn" data-refresh-template-examples="${originalIndex}">Improve examples</button>` : ''}<button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
+            <div class="saved-actions">${x.kind === 'template' ? `<button class="small-btn" data-refresh-template-examples="${originalIndex}">Improve examples</button><button class="small-btn danger" data-delete-template-index="${originalIndex}">Delete template</button>` : ''}<button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
           </div>
         </details>`;
       }
@@ -3015,6 +3075,9 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     const savePhrase = e.target.closest('[data-save-phrase]'); if (savePhrase) { savePhraseFromSubtitle(savePhrase.dataset.savePhrase, Number(savePhrase.dataset.index)); return; }
     const refreshOneTemplate = e.target.closest('[data-refresh-template-examples]'); if (refreshOneTemplate) { refreshTemplateExamplesByIndex(refreshOneTemplate.dataset.refreshTemplateExamples); return; }
     const refreshAllTemplates = e.target.closest('[data-refresh-all-template-examples]'); if (refreshAllTemplates) { refreshAllTemplateExamples(); return; }
+    const deleteOneTemplate = e.target.closest('[data-delete-template-index]'); if (deleteOneTemplate) { deleteTemplateByIndex(deleteOneTemplate.dataset.deleteTemplateIndex); return; }
+    const deleteSelectedTemplatesBtn = e.target.closest('[data-delete-selected-templates]'); if (deleteSelectedTemplatesBtn) { deleteSelectedTemplates(); return; }
+    const deleteAllTemplatesBtn = e.target.closest('[data-delete-all-templates]'); if (deleteAllTemplatesBtn) { deleteAllTemplates(); return; }
     const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
     const ppLine = e.target.closest('[data-pp-line]'); if (ppLine) { const item = state.savedLines[Number(ppLine.dataset.ppLine)]; if (item) openPlayPhrase(cleanLine(item.en)); return; }
     const reviewOne = e.target.closest('[data-review-one]'); if (reviewOne) { const [type, index] = reviewOne.dataset.reviewOne.split(':'); showSingleReviewCard(type, index); return; }

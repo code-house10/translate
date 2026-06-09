@@ -1,18 +1,16 @@
-Jungle Movie English Trainer - MyMemory Template Examples Fix
+Jungle Movie English Trainer - MyMemory Template Examples + Template Cleanup
 
 What changed:
-- Chats-LLM is no longer used for template examples because it was not returning reliable examples.
-- Saved template examples now use MyMemory only:
-  1) The app searches the current subtitle file for matching real lines.
-  2) It queries MyMemory translation memory using complete English example sentences.
-  3) If needed, it uses safe daily-life template examples and translates them to Arabic with MyMemory.
+- Added cleanup tools inside Saved templates:
+  1) Delete one template from its details.
+  2) Select multiple templates and click Delete selected.
+  3) Delete all saved templates at once.
+- Template deletions are saved locally and synced to Supabase so deleted templates do not come back on another device.
+- Saved words, phrases, lines, Lara settings, examples, and review progress are kept unchanged.
+- Chats-LLM is still not used for template examples. MyMemory remains the examples/translation source for templates.
 - Lara remains reserved for subtitle-line translation only.
-- Saved words, phrases, lines, templates, examples, and review progress still sync with Supabase.
-- A direct MyMemory browser fallback was added, so template examples can still work even if the Vercel MyMemory proxy is missing.
 
 Recommended setup on Vercel:
 1. Upload the full project folder, not only index.html.
-2. No Chats-LLM key is needed anymore.
-3. Keep Lara keys only for subtitle translation.
-4. After deployment, hard refresh the app to clear the old service worker.
-5. Open Saved templates and run Improve all examples once to rebuild old template examples with MyMemory.
+2. After deployment, hard refresh the app to clear the old service worker.
+3. Open Saved templates to use Delete selected / Delete all templates.

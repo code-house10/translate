@@ -54,3 +54,6 @@
 .template-item{border-color:#fed7aa!important;background:#fffaf5!important}
 .template-chip{background:#ffedd5!important;color:#c2410c!important}
 .template-usage small{display:block;margin-top:6px;color:#92400e;font-weight:800}
+
+/* Saved templates cleanup tools */
+.template-clean-actions{margin-top:10px}.delete-hint{color:#991b1b!important}.saved-select-check{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:26px;height:26px;border:1px solid #fecaca;background:#fff7f7;border-radius:9px;cursor:pointer}.saved-select-check input{width:16px;height:16px;accent-color:#ef4444;cursor:pointer}.template-item summary{gap:7px}.template-item .saved-actions .danger{font-weight:900}
