@@ -43,7 +43,7 @@ module.exports = async function handler(req, res) {
     const accessKeySecret = String(credentials.accessKeySecret || process.env.LARA_ACCESS_KEY_SECRET || '').trim();
     const lara = getTranslator(accessKeyId, accessKeySecret);
 
-    const source = body.source || process.env.LARA_SOURCE_LANG || 'en-US';
+    const source = body.source || process.env.LARA_SOURCE_LANG || 'en';
     const target = body.target || process.env.LARA_TARGET_LANG || 'ar';
     const instructions = Array.isArray(body.instructions) && body.instructions.length
       ? body.instructions
@@ -79,6 +79,6 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ translatedText: Array.isArray(result.translation) ? (result.translation[0] || '') : (result.translation || '') });
   } catch (error) {
     console.error('Lara translate error:', error);
-    return res.status(error.statusCode || 500).json({ error: error.message || String(error), type: error.type || error.constructor?.name || 'LaraError' });
+    return res.status(error.statusCode || 500).json({ error: error.message || String(error), type: error.type || error.constructor?.name || 'LaraError', source: 'lara-sdk' });
   }
 };

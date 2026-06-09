@@ -435,14 +435,184 @@
     return null;
   }
 
-  function extractTemplateFromLine(line) {
-    const text = cleanLine(line).replace(/^[-–—]\s*/, '').trim();
-    if (!text || shouldIgnoreSubtitle(text)) return null;
-    for (const rule of TEMPLATE_RULES) {
-      const m = text.match(rule.re);
-      if (m) return { ...rule.build(m), source: text, rule: rule.name };
+  function splitTemplateCandidateSentences(line) {
+    const original = cleanLine(line)
+      .replace(/^[\-–—]\s*/, '')
+      .replace(/\s+[\-–—]\s+/g, ' | ')
+      .trim();
+    if (!original) return [];
+    const parts = [];
+    const push = v => {
+      v = cleanLine(v).replace(/^[\-–—]\s*/, '').trim();
+      if (!v || shouldIgnoreSubtitle(v)) return;
+      if ((tokenize(v) || []).length < 3) return;
+      if (!parts.some(x => x.toLowerCase() === v.toLowerCase())) parts.push(v);
+    };
+    push(original);
+    original.split(/\s*\|\s*/).forEach(push);
+    original.split(/(?<=[.!?])\s+/).forEach(push);
+    return parts.slice(0, 8);
+  }
+
+  function smartGenericTemplateFromLine(line) {
+    const candidates = splitTemplateCandidateSentences(line);
+    for (const text of candidates) {
+      const known = genericTemplateFromLine(text);
+      if (known?.pattern) return { ...known, source: text, rule: known.name || 'Local smart template' };
+
+      const t = text.replace(/[“”]/g, '"').replace(/[’]/g, "'").trim();
+      const lower = t.toLowerCase();
+      let m;
+
+      if ((m = t.match(/^(.+?)\b(?:wanna|want to|going to|gonna)\b\s+(.+?)([.!?]*)$/i))) {
+        const prefix = m[1].trim().replace(/\bi\s*$/i, 'I');
+        const starter = /\bi\s*$/i.test(m[1]) ? 'I' : cleanLine(prefix);
+        const modal = /gonna|going to/i.test(t) ? 'gonna' : (/wanna/i.test(t) ? 'wanna' : 'want to');
+        return {
+          pattern: `${starter} ${modal} [do something].`.replace(/^i\b/i, 'I'),
+          slot: m[2],
+          source: text,
+          rule: 'AI-ready want/gonna template',
+          usageEn: 'Use it when you want to say what someone wants or is going to do in a natural conversational way.',
+          usageAr: 'تستخدمها عندما تريد أن تقول ما يريد شخص فعله أو ما ينوي فعله بطريقة محادثة طبيعية.',
+          examples: []
+        };
+      }
+
+      if ((m = t.match(/^(I|You|We|They|He|She)\s+(?:have|has|had|need|needs|needed)\s+to\s+(.+?)([.!?]*)$/i))) {
+        const subject = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+        const verb = lower.includes('need') ? (subject === 'He' || subject === 'She' ? 'needs' : 'need') : (subject === 'He' || subject === 'She' ? 'has' : 'have');
+        return {
+          pattern: `${subject} ${verb} to [do something].`,
+          slot: m[2],
+          source: text,
+          rule: 'AI-ready necessity template',
+          usageEn: 'Use it when you want to talk about something necessary or important to do.',
+          usageAr: 'تستخدمها عندما تتحدث عن شيء ضروري أو مهم يجب فعله.',
+          examples: []
+        };
+      }
+
+      if ((m = t.match(/^(Shouldn['’]?t|Should|Can|Could|Would|Will|Do|Did|Does|Have|Has|Are|Is|Am)\s+(.+?)([?]*)$/i))) {
+        const aux = m[1].replace('’', "'");
+        let rest = m[2].replace(/[?!.]+$/g, '').trim();
+        const words = tokenize(rest);
+        if (words.length >= 2) {
+          const keepCount = Math.min(4, Math.max(2, Math.floor(words.length * 0.45)));
+          const head = rest.split(/\s+/).slice(0, keepCount).join(' ');
+          return {
+            pattern: `${aux[0].toUpperCase() + aux.slice(1).toLowerCase()} ${head} [something]?`,
+            slot: rest.split(/\s+/).slice(keepCount).join(' '),
+            source: text,
+            rule: 'AI-ready question template',
+            usageEn: 'Use it when asking a similar question in a different daily-life situation.',
+            usageAr: 'تستخدمها عندما تريد أن تسأل سؤالًا مشابهًا في موقف يومي مختلف.',
+            examples: []
+          };
+        }
+      }
+
+      if ((m = t.match(/^(Why|What|Where|When|How|Who)\s+(.+?)([?]*)$/i))) {
+        const wh = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+        const rest = m[2].replace(/[?!.]+$/g, '').trim();
+        const words = rest.split(/\s+/);
+        if (words.length >= 3) {
+          const keepCount = Math.min(5, Math.max(2, Math.floor(words.length * 0.5)));
+          return {
+            pattern: `${wh} ${words.slice(0, keepCount).join(' ')} [something]?`,
+            slot: words.slice(keepCount).join(' '),
+            source: text,
+            rule: 'AI-ready WH question template',
+            usageEn: 'Use it when you want to ask the same kind of question in another situation.',
+            usageAr: 'تستخدمها عندما تريد أن تسأل نفس نوع السؤال في موقف آخر.',
+            examples: []
+          };
+        }
+      }
+
+      if ((m = t.match(/^(I|You|We|They|He|She)\s+(?:can|could|should|would|will|might|must)\s+(.+?)([.!?]*)$/i))) {
+        const subject = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+        const modal = (t.match(/\b(can|could|should|would|will|might|must)\b/i) || [,''])[1].toLowerCase();
+        return {
+          pattern: `${subject} ${modal} [do something].`,
+          slot: m[2],
+          source: text,
+          rule: 'AI-ready modal template',
+          usageEn: 'Use it when you want to express ability, advice, possibility, or intention with the same structure.',
+          usageAr: 'تستخدمها عندما تريد التعبير عن القدرة أو النصيحة أو الاحتمال أو النية بنفس التركيب.',
+          examples: []
+        };
+      }
+
+      const words = t.replace(/[.!?]+$/g, '').split(/\s+/).filter(Boolean);
+      if (words.length >= 5 && words.length <= 18 && /[a-z]/i.test(t)) {
+        const keepCount = Math.min(5, Math.max(3, Math.floor(words.length * 0.55)));
+        const ending = /[?]$/.test(t) ? '?' : '.';
+        return {
+          pattern: `${words.slice(0, keepCount).join(' ')} [something]${ending}`,
+          slot: words.slice(keepCount).join(' '),
+          source: text,
+          rule: 'AI-ready general template',
+          usageEn: 'Use it as a reusable sentence frame. Replace the bracketed part with details that fit your situation.',
+          usageAr: 'تستخدمها كقالب قابل لإعادة الاستخدام، وتغير الجزء بين الأقواس حسب الموقف.',
+          examples: []
+        };
+      }
     }
-    return genericTemplateFromLine(text);
+    return null;
+  }
+
+  function extractTemplateFromLine(line) {
+    const candidates = splitTemplateCandidateSentences(line);
+    for (const text of candidates) {
+      for (const rule of TEMPLATE_RULES) {
+        const m = text.match(rule.re);
+        if (m) return { ...rule.build(m), source: text, rule: rule.name };
+      }
+      const generic = genericTemplateFromLine(text);
+      if (generic?.pattern) return { ...generic, source: text, rule: generic.name || 'Local template' };
+    }
+    return smartGenericTemplateFromLine(line);
+  }
+
+  async function fetchTemplateFromChatLlm(line) {
+    const cfg = (typeof getChatLlmConfig === 'function') ? getChatLlmConfig() : { apiKey: '', model: '' };
+    const res = await fetch('/api/chats-llm-extract-template', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        line: cleanLine(line),
+        apiKey: cfg.apiKey || '',
+        model: cfg.model || ''
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
+    const t = data.template || data;
+    if (!t?.pattern || !/\[.+?\]/.test(t.pattern)) return null;
+    return {
+      pattern: cleanLine(t.pattern),
+      slot: cleanLine(t.slot || ''),
+      usageEn: cleanLine(t.usageEn || ''),
+      usageAr: cleanLine(t.usageAr || ''),
+      examples: Array.isArray(t.examples) ? t.examples : [],
+      source: cleanLine(line),
+      rule: 'Chats-LLM extracted template'
+    };
+  }
+
+  async function extractTemplateFromLineAsync(line) {
+    const local = extractTemplateFromLine(line);
+    // Known templates are reliable and fast. For broad fallback templates, ask AI to improve the pattern if available.
+    if (local?.pattern && !/^AI-ready/.test(String(local.rule || ''))) return local;
+    try {
+      const ai = await fetchTemplateFromChatLlm(line);
+      if (ai?.pattern) return ai;
+    } catch (e) {
+      console.warn('AI template extraction failed:', e);
+      if (e?.message) setStatus(e.message);
+    }
+    return local;
   }
 
   async function translateTemplateMeaning(template, contextEn = '') {
@@ -1642,13 +1812,17 @@
   function laraApiErrorMessage(status, data) {
     if (status === 404) return 'Lara API proxy is missing. Upload the full Vercel project folder, not the HTML file only.';
     if (status === 401 || status === 403) return 'Lara rejected the credentials. Check Access Key ID and Secret.';
-    return data?.error || data?.details || `Lara failed (${status})`;
+    const raw = data?.error || data?.details || data?.message || '';
+    if (/api_translation_chars|quota|exceeded/i.test(String(raw))) {
+      return 'Lara says the API translation quota is exceeded for these credentials. I will use MyMemory fallback for this request. Check that the saved Lara keys belong to the same API plan you are viewing.';
+    }
+    return raw || `Lara failed (${status})`;
   }
 
   function getLaraPayload(extra = {}) {
     const cfg = getLaraConfig();
     const payload = {
-      source: 'en-US',
+      source: 'en',
       target: 'ar',
       style: 'fluid',
       instructions: [
@@ -1679,7 +1853,15 @@
       body: JSON.stringify(getLaraPayload({ text }))
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(laraApiErrorMessage(res.status, data));
+    if (!res.ok) {
+      const msg = laraApiErrorMessage(res.status, data);
+      if (/quota is exceeded|MyMemory fallback/i.test(msg)) {
+        console.warn('Lara quota/plan issue. Falling back to MyMemory:', data);
+        setStatus('Lara quota issue. Using MyMemory fallback for this line.');
+        try { return await translateMyMemory(text); } catch {}
+      }
+      throw new Error(msg);
+    }
     return data.translatedText || '';
   }
 
@@ -1690,7 +1872,15 @@
       body: JSON.stringify(getLaraPayload({ items }))
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(laraApiErrorMessage(res.status, data));
+    if (!res.ok) {
+      const msg = laraApiErrorMessage(res.status, data);
+      if (/quota is exceeded|MyMemory fallback/i.test(msg)) {
+        console.warn('Lara quota/plan issue. Falling back to MyMemory batch:', data);
+        setStatus('Lara quota issue. Using MyMemory fallback for subtitle translation.');
+        try { return await translateMyMemoryItems(items); } catch {}
+      }
+      throw new Error(msg);
+    }
     return data.translated || [];
   }
 
@@ -1816,8 +2006,9 @@
   async function saveTemplateFromSubtitle(idx = state.lastIndex) {
     const item = state.subtitles[idx];
     if (!item) return;
-    const template = extractTemplateFromLine(item.en);
-    if (!template || !template.pattern) return toast('No useful template found in this line');
+    setStatus('Extracting sentence template...');
+    const template = await extractTemplateFromLineAsync(item.en);
+    if (!template || !template.pattern) return toast('No useful template found. Add AI examples key or try a longer line.');
     setStatus('Saving sentence template...');
     const contextEn = cleanLine(item.en);
     const contextAr = item.ar || '';
@@ -1844,7 +2035,7 @@
     let saved = 0;
     const seen = new Set(state.savedWords.filter(x => x.kind === 'template').map(x => String(x.word || '').toLowerCase()));
     for (let i = 0; i < state.subtitles.length; i++) {
-      const template = extractTemplateFromLine(state.subtitles[i].en);
+      const template = await extractTemplateFromLineAsync(state.subtitles[i].en);
       if (!template?.pattern) continue;
       const key = template.pattern.toLowerCase();
       if (seen.has(key)) continue;
