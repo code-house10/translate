@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>Jungle Movie Lite</title>
-  <link rel="stylesheet" href="./style.css?v=lara-quota-safe-v1" />
+  <link rel="stylesheet" href="./style.css?v=puter-subtitles-v1" />
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -35,7 +35,7 @@
           <button id="jumpCurrentBtn" title="Find current card">🎯 Card</button>
           <button id="saveLineBtn" title="Save line">☆</button>
           <button id="copyLineBtn" title="Copy line">⧉</button>
-          <button id="translateLineBtn" title="Translate line">AR</button>
+          <button id="translateLineBtn" title="Translate with Puter AI">AR</button>
           <button id="playPhraseLineBtn" title="PlayPhrase line">PP</button>
         </div>
         <div class="dock-repeat-tools" onclick="event.stopPropagation()">
@@ -84,8 +84,8 @@
       <div class="menu-grid">
         <button id="menuUploadSrt">Upload / change SRT</button>
         <button id="menuAzure">Translate all with Azure</button>
-        <button id="menuLaraAll">Translate all with Lara</button>
-        <button id="menuLaraSettings">Lara settings</button>
+        <button id="menuLaraAll">Translate all with Puter AI</button>
+        <button id="menuLaraSettings">Lara backup settings</button>
         <button id="menuAiTemplateSettings">Puter AI examples</button>
         <button id="menuSavedWords">Saved words</button>
         <button id="menuSavedPhrases">Saved phrases</button>
@@ -158,7 +158,7 @@
   <div id="laraModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head"><b>Lara Translate settings</b><button data-close-modal="laraModal">×</button></div>
-      <p class="settings-hint">Use Lara for natural subtitle-line translation. Settings are saved locally and synced to Supabase so they can be restored on your other devices. For better security, Vercel environment variables are still recommended: <b>LARA_ACCESS_KEY_ID</b> and <b>LARA_ACCESS_KEY_SECRET</b>.</p>
+      <p class="settings-hint">Puter AI is now the main subtitle translator. Lara is kept only as a backup/test option in case you still want to check it later. Lara settings are saved locally and synced to Supabase so they can be restored on your other devices.</p>
       <input id="laraKeyIdInput" class="text-input" dir="ltr" placeholder="Lara Access Key ID" />
       <input id="laraSecretInput" class="text-input" dir="ltr" type="password" placeholder="Lara Access Key Secret" />
       <div class="settings-actions">
@@ -168,7 +168,7 @@
         <button id="clearLaraQuotaPauseBtn" class="small-btn">Clear Lara pause</button>
       </div>
       <p id="laraSettingsStatus" class="menu-status"></p>
-      <p class="settings-hint">If Lara returns a quota error, the app temporarily pauses Lara and uses MyMemory fallback so translation does not stop. Test Lara now shows the real Lara response without fallback.</p>
+      <p class="settings-hint">If Lara returns a quota error, ignore it unless you choose to use Lara manually. Subtitle translation now uses Puter AI first, then MyMemory fallback.</p>
     </div>
   </div>
 
@@ -176,7 +176,7 @@
   <div id="aiTemplateModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head"><b>Puter AI Template Examples</b><button data-close-modal="aiTemplateModal">×</button></div>
-      <p class="settings-hint">Puter AI is active in this version. It generates natural daily-life examples from each saved template and includes Arabic translation. If Puter is unavailable, the app falls back to subtitle matches, MyMemory, and safe examples. Lara remains for subtitle-line translation only. No API key is required. If you still see “MyMemory Template Examples”, your browser is opening an old cached version.</p>
+      <p class="settings-hint">Puter AI is active in this version. It translates subtitle lines and generates natural daily-life examples from each saved template with Arabic translation. If Puter is unavailable, the app falls back to MyMemory. Lara is no longer the main subtitle translator. No API key is required.</p>
       <input id="chatLlmKeyInput" class="text-input hidden" dir="ltr" type="password" placeholder="Not needed" />
       <input id="chatLlmModelInput" class="text-input hidden" dir="ltr" placeholder="Not needed" />
       <div class="settings-actions">
@@ -196,10 +196,10 @@
 
   <div id="toast" class="toast hidden"></div>
   <script src="https://js.puter.com/v2/"></script>
-  <script src="./app.js?v=lara-quota-safe-v1"></script>
+  <script src="./app.js?v=puter-subtitles-v1"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=lara-quota-safe-v1').then(r => r.update()).catch(() => {}));
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=puter-subtitles-v1').then(r => r.update()).catch(() => {}));
     }
   </script>
 </body>

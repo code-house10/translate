@@ -1243,6 +1243,123 @@ Good output example:
     return [];
   }
 
+
+  const PUTER_SUBTITLE_MODELS = ['gpt-5.4-nano', 'gpt-5-nano', 'gpt-4.1-nano', 'gpt-4o-mini'];
+
+  function cleanPuterArabicTranslation(text) {
+    text = cleanLine(text || '');
+    text = text.replace(/^```(?:json|arabic|ar)?\s*/i, '').replace(/```$/g, '').trim();
+    text = text.replace(/^\s*["'“”]+|["'“”]+\s*$/g, '').trim();
+    text = text.replace(/^Arabic\s*:\s*/i, '').replace(/^الترجمة\s*[:：]\s*/i, '').trim();
+    return text;
+  }
+
+  function buildPuterSubtitlePrompt(text) {
+    text = cleanLine(text || '');
+    return `You are a professional subtitle translator.
+
+Translate this English movie/series subtitle line into natural Arabic.
+
+ENGLISH:
+${text}
+
+RULES:
+- Return Arabic translation only.
+- No explanations.
+- No quotation marks.
+- Keep it concise and natural for subtitles.
+- Preserve tone, slang, implied meaning, jokes, and emotion.
+- Use natural Arabic that is easy for an Egyptian Arabic-speaking learner to understand.`;
+  }
+
+  function buildPuterSubtitleBatchPrompt(items) {
+    const rows = (items || []).map(x => ({ index: Number(x.index), en: cleanLine(x.text || x.en || '') })).filter(x => x.en);
+    return `You are a professional subtitle translator.
+
+Translate these English movie/series subtitle lines into natural Arabic.
+Return JSON only.
+
+INPUT JSON:
+${JSON.stringify(rows, null, 2)}
+
+OUTPUT FORMAT:
+[
+  {"index": 0, "ar": "..."}
+]
+
+RULES:
+- Return valid JSON only. No markdown. No explanations.
+- Keep every original index exactly the same.
+- Translate each line naturally for subtitle use.
+- Keep translations concise.
+- Preserve tone, slang, implied meaning, jokes, and emotion.
+- Use natural Arabic that is easy for an Egyptian Arabic-speaking learner to understand.`;
+  }
+
+  async function translatePuterSubtitle(text) {
+    text = cleanLine(text || '');
+    if (!text) return '';
+    if (!window.puter?.ai?.chat) throw new Error('Puter AI is not loaded. Check your internet connection or reload the page.');
+    const prompt = buildPuterSubtitlePrompt(text);
+    let lastError = null;
+    for (const model of PUTER_SUBTITLE_MODELS) {
+      try {
+        const response = await window.puter.ai.chat(prompt, { model, temperature: 0.2, max_tokens: 260 });
+        const ar = cleanPuterArabicTranslation(puterResponseToText(response));
+        if (ar && !/[A-Za-z]{4,}/.test(ar.slice(0, 80))) return ar;
+        if (ar) return ar;
+      } catch (e) {
+        lastError = e;
+        console.warn('Puter subtitle translation failed with model', model, e);
+      }
+    }
+    throw lastError || new Error('Puter AI subtitle translation failed.');
+  }
+
+  async function translatePuterSubtitleItems(items) {
+    items = (items || []).map(x => ({ index: Number(x.index), text: cleanLine(x.text || x.en || '') })).filter(x => x.text);
+    if (!items.length) return [];
+    if (!window.puter?.ai?.chat) throw new Error('Puter AI is not loaded. Check your internet connection or reload the page.');
+    const prompt = buildPuterSubtitleBatchPrompt(items);
+    let lastError = null;
+    for (const model of PUTER_SUBTITLE_MODELS) {
+      try {
+        const response = await window.puter.ai.chat(prompt, { model, temperature: 0.2, max_tokens: Math.min(1800, 220 + items.length * 180) });
+        const text = puterResponseToText(response);
+        const parsed = parseJsonLoose(text);
+        const rawList = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.translations) ? parsed.translations : []);
+        const rows = rawList.map(x => ({ index: Number(x?.index), ar: cleanPuterArabicTranslation(x?.ar || x?.arabic || x?.translation || '') })).filter(x => Number.isFinite(x.index) && x.ar);
+        if (rows.length) return rows;
+      } catch (e) {
+        lastError = e;
+        console.warn('Puter subtitle batch translation failed with model', model, e);
+      }
+    }
+    throw lastError || new Error('Puter AI subtitle batch translation failed.');
+  }
+
+  async function translateSubtitlePreferred(text) {
+    try {
+      return await translatePuterSubtitle(text);
+    } catch (e) {
+      console.warn('Puter subtitle translation unavailable. Falling back to MyMemory:', e);
+      setStatus('Puter AI translation unavailable. MyMemory fallback is active.');
+      try { return await translateMyMemory(text); } catch {}
+      throw e;
+    }
+  }
+
+  async function translateSubtitlePreferredItems(items) {
+    try {
+      return await translatePuterSubtitleItems(items);
+    } catch (e) {
+      console.warn('Puter subtitle batch unavailable. Falling back to MyMemory:', e);
+      setStatus('Puter AI batch translation unavailable. MyMemory fallback is active.');
+      try { return await translateMyMemoryItems(items); } catch {}
+      throw e;
+    }
+  }
+
   async function fetchTemplateExamplesFromChatLlm(template, contextEn = '') {
     // Chats-LLM is intentionally disabled for template examples.
     // Template examples now use MyMemory translation-memory lookup + MyMemory translation only.
@@ -2053,7 +2170,7 @@ Good output example:
       </div>
       <div class="line-action-strip" aria-label="Line actions">
         <button type="button" class="action-icon copy" data-line-action="copy" data-index="${i}" aria-label="Copy line" title="Copy line">📋</button>
-        <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line naturally with Lara" title="Translate naturally with Lara">🌐</button>
+        <button type="button" class="action-icon translate" data-line-action="translate" data-index="${i}" aria-label="Translate line with Puter AI" title="Translate with Puter AI">🌐</button>
         <button type="button" class="action-icon save" data-line-action="save" data-index="${i}" aria-label="Save line" title="Save line">★</button>
         <button type="button" class="action-icon phrase" data-line-action="phrases" data-index="${i}" aria-label="Save phrase chunks" title="Save phrase chunks">🧩</button>
         <button type="button" class="action-icon template" data-line-action="template" data-index="${i}" aria-label="Save sentence template" title="Save sentence template">🧱</button>
@@ -2349,7 +2466,7 @@ Good output example:
     const cfg = getChatLlmConfig();
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = cfg.apiKey;
     if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model;
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Puter AI is active. No API key is needed. Template examples use Puter AI first, then MyMemory fallback; Lara remains for subtitle translation.';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Puter AI is active. No API key is needed. Template examples use Puter AI first, then MyMemory fallback; Puter AI also translates subtitles. Lara is kept only as an optional backup/test setting.';
     openModal('aiTemplateModal');
   }
 
@@ -2477,47 +2594,61 @@ Good output example:
 
   async function translateLine(idx) {
     const item = state.subtitles[idx]; if (!item) return;
-    setStatus('Translating line naturally with Lara...');
+    setStatus('Translating line with Puter AI...');
     try {
-      item.ar = await translateLara(cleanLine(item.en));
+      item.ar = await translateSubtitlePreferred(cleanLine(item.en));
       $('ar-' + idx) && ($('ar-' + idx).innerHTML = escapeHtml(item.ar));
       if (idx === state.lastIndex) updateDock(item, state.lastWordIndex);
-      debounceSave(); scheduleCloudLibrarySync(); toast('Lara translation done');
+      debounceSave(); scheduleCloudLibrarySync(); toast('Puter AI translation done');
     } catch (e) {
       console.warn(e);
-      toast('Lara needs setup');
-      openLaraSettings(e.message || 'Lara credentials required.');
+      toast('Translation failed');
+      setStatus(e.message || 'Puter AI subtitle translation failed.');
     }
   }
 
-  async function translateAllLara() {
+  async function translateAllPuter() {
     const jobs = state.subtitles.map((it, index) => ({ index, text: cleanLine(it.en) })).filter(x => x.text && !state.subtitles[x.index].ar);
     if (!jobs.length) return toast('Nothing to translate');
-    openMenu(false); setStatus(`Lara translating ${jobs.length} lines naturally...`);
-    const chunkSize = 24;
+    openMenu(false); setStatus(`Puter AI translating ${jobs.length} lines naturally...`);
+    const chunkSize = 8;
     let done = 0;
     for (let i=0; i<jobs.length; i+=chunkSize) {
       const items = jobs.slice(i, i+chunkSize);
       try {
-        const rows = await translateLaraItems(items);
-        for (const row of rows) {
-          if (state.subtitles[row.index]) {
-            state.subtitles[row.index].ar = row.ar || '';
+        const rows = await translateSubtitlePreferredItems(items);
+        const rowMap = new Map((rows || []).map(row => [Number(row.index), row.ar || '']));
+        for (const item of items) {
+          const ar = rowMap.get(Number(item.index));
+          if (state.subtitles[item.index] && ar) {
+            state.subtitles[item.index].ar = ar;
             done++;
           }
         }
-        setStatus(`Lara translated ${done}/${jobs.length}`);
+        setStatus(`Puter AI translated ${done}/${jobs.length}`);
         renderList(state.listCenter); debounceSave(); scheduleCloudLibrarySync();
       } catch (e) {
         console.warn(e);
-        toast('Lara needs setup');
-        openLaraSettings(e.message || 'Lara credentials required.');
-        break;
+        setStatus('Batch failed. Translating remaining lines one by one...');
+        for (const item of items) {
+          try {
+            const ar = await translateSubtitlePreferred(item.text);
+            if (state.subtitles[item.index] && ar) {
+              state.subtitles[item.index].ar = ar;
+              done++;
+            }
+          } catch (inner) { console.warn(inner); }
+          await new Promise(r => setTimeout(r, 250));
+        }
+        renderList(state.listCenter); debounceSave(); scheduleCloudLibrarySync();
       }
-      await new Promise(r => setTimeout(r, 650));
+      await new Promise(r => setTimeout(r, 900));
     }
-    saveState(); setStatus('Lara translation finished'); toast('Natural translation finished');
+    saveState(); setStatus('Puter AI subtitle translation finished'); toast('Puter AI translation finished');
   }
+
+  // Backward-compatible name used by existing menu wiring.
+  async function translateAllLara() { return translateAllPuter(); }
 
   async function translateAllAzure() {
     const jobs = state.subtitles.map((it, index) => ({ index, text: cleanLine(it.en) })).filter(x => x.text && !state.subtitles[x.index].ar);
@@ -2663,8 +2794,8 @@ Good output example:
     const key = lineKey(item);
     let ar = item.ar || '';
     if (!ar && translateIfMissing) {
-      setStatus('Translating line with Lara before saving...');
-      try { ar = await translateLara(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch (e) { console.warn(e); ar = ''; openLaraSettings(e.message || 'Lara credentials required.'); }
+      setStatus('Translating line with Puter AI before saving...');
+      try { ar = await translateSubtitlePreferred(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch (e) { console.warn(e); ar = ''; setStatus('Puter AI translation failed while saving line. Saved without Arabic translation.'); }
     }
     const existing = state.savedLines.find(x => x.key === key);
     if (existing) { existing.ar = existing.ar || ar; toast('Line already saved'); }

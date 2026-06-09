@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-lara-quota-safe-v1';
+const CACHE_NAME = 'jungle-movie-puter-subtitles-v1';
 const APP_SHELL = [
   './',
   './index.html',
