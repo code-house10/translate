@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-ai-template-extract-lara-fallback-v2';
+const CACHE_NAME = 'jungle-movie-chats-llm-direct-fallback-v1';
 const APP_SHELL = [
   './',
   './index.html',

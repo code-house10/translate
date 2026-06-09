@@ -575,30 +575,182 @@
     return smartGenericTemplateFromLine(line);
   }
 
-  async function fetchTemplateFromChatLlm(line) {
-    const cfg = (typeof getChatLlmConfig === 'function') ? getChatLlmConfig() : { apiKey: '', model: '' };
-    const res = await fetch('/api/chats-llm-extract-template', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        line: cleanLine(line),
-        apiKey: cfg.apiKey || '',
-        model: cfg.model || ''
-      })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
-    const t = data.template || data;
-    if (!t?.pattern || !/\[.+?\]/.test(t.pattern)) return null;
-    return {
-      pattern: cleanLine(t.pattern),
+  function stripJsonFence(text) {
+    return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  }
+
+  function parseJsonLoose(text) {
+    const raw = stripJsonFence(text);
+    try { return JSON.parse(raw); } catch {}
+    const obj = raw.match(/\{[\s\S]*\}/);
+    if (obj) { try { return JSON.parse(obj[0]); } catch {} }
+    const arr = raw.match(/\[[\s\S]*\]/);
+    if (arr) { try { return JSON.parse(arr[0]); } catch {} }
+    return null;
+  }
+
+  function chatsLlmBaseUrl() {
+    return String(localStorage.getItem('jm_chats_llm_base_url') || 'https://chats-llm.com/api/v1').trim().replace(/\/$/, '');
+  }
+
+  async function chooseChatLlmModelDirect(cfg) {
+    const explicit = cleanLine(cfg?.model || localStorage.getItem('jm_chats_llm_model') || '');
+    if (explicit) return explicit;
+    const apiKey = cleanLine(cfg?.apiKey || '');
+    if (!apiKey) return 'auto';
+    try {
+      const res = await fetch(`${chatsLlmBaseUrl()}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      const model = Array.isArray(data?.data) ? data.data.find(m => m?.id)?.id : '';
+      if (model) {
+        localStorage.setItem('jm_chats_llm_model', model);
+        return model;
+      }
+    } catch (e) {
+      console.warn('Direct Chats-LLM models lookup failed:', e);
+    }
+    return 'auto';
+  }
+
+  function normalizeAiTemplate(raw, sourceLine) {
+    const t = raw?.template || raw || {};
+    const examples = sanitizeTemplateExamples(Array.isArray(t.examples) ? t.examples.map(x => ({
+      en: cleanLine(x?.en || x?.english || ''),
+      ar: cleanLine(x?.ar || x?.arabic || ''),
+      slot: cleanLine(x?.slot || x?.replacement || ''),
+      source: 'ai-direct'
+    })) : [], t.pattern || '', sourceLine);
+    const out = {
+      pattern: cleanLine(t.pattern || ''),
       slot: cleanLine(t.slot || ''),
-      usageEn: cleanLine(t.usageEn || ''),
+      usageEn: cleanLine(t.usageEn || t.usage || ''),
       usageAr: cleanLine(t.usageAr || ''),
-      examples: Array.isArray(t.examples) ? t.examples : [],
-      source: cleanLine(line),
+      examples,
+      source: cleanLine(sourceLine || ''),
       rule: 'Chats-LLM extracted template'
     };
+    if (!out.pattern || !/\[.+?\]/.test(out.pattern)) return null;
+    if (looksLikeBadTemplateExample(out.pattern.replace(/\[.+?\]/g, 'something'))) return null;
+    return out;
+  }
+
+  function buildTemplateExtractPrompt(line) {
+    return `You are helping an Arabic-speaking English learner turn movie subtitle lines into reusable sentence templates.
+
+TASK:
+Analyze this English subtitle line and extract ONE useful, reusable sentence template.
+
+STRICT RULES:
+- Output JSON only. No markdown. No explanations.
+- The template MUST contain one bracket placeholder like [do something], [someone], [something], [somewhere], or [time].
+- Do not create a strange or incomplete template.
+- Keep the original grammar, tone, and useful fixed phrase.
+- Choose a template that can be reused in daily-life situations.
+- Also give 3 complete natural daily-life examples using the same template.
+- Translate usage and examples into natural Arabic.
+- If the line contains more than one sentence, choose the most reusable one.
+
+Return exactly this JSON:
+{
+  "template": {
+    "pattern": "Reusable English template with [placeholder].",
+    "slot": "the original part replaced by the placeholder",
+    "usageEn": "When to use this template in simple English.",
+    "usageAr": "شرح الاستخدام بالعربي.",
+    "examples": [
+      {"slot": "replacement", "en": "Complete natural English example.", "ar": "ترجمة عربية طبيعية."}
+    ]
+  }
+}
+
+Subtitle line: ${cleanLine(line)}`;
+  }
+
+  function buildTemplateExamplesPrompt(template, contextEn = '') {
+    return `You are helping an Arabic-speaking English learner learn reusable sentence templates from movies.
+
+TASK:
+Given an English sentence template containing bracket placeholders like [do something], create 3 natural, complete, everyday English examples by replacing the bracket part with realistic daily-life situations. Also translate each example into natural Arabic.
+
+STRICT RULES:
+- Output JSON only. No markdown. No explanations.
+- Do not return the template itself.
+- Do not keep brackets [] in examples.
+- Each English example must be a complete, natural sentence a native speaker could say in daily life.
+- Examples must be useful for real situations, not strange movie-only situations.
+- Avoid awkward phrases like "in my own situation", "examples of template", or sentences ending with a preposition.
+- Keep the same grammar structure and tone of the template.
+- Arabic translations should be natural and concise, not literal word-for-word.
+- If the template is annoyed, funny, casual, or polite, keep that tone.
+
+Return exactly this JSON shape:
+{
+  "examples": [
+    {"slot": "replacement words used", "en": "Complete English example.", "ar": "الترجمة العربية الطبيعية."}
+  ]
+}
+
+Template: ${cleanLine(template?.pattern || '')}
+Original movie line/context: ${cleanLine(contextEn || template?.source || '')}
+Original slot if known: ${cleanLine(template?.slot || '')}
+Usage in English: ${cleanLine(template?.usageEn || '')}
+Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
+  }
+
+  async function callChatsLlmDirect(prompt, cfg, { temperature = 0.3, maxTokens = 900 } = {}) {
+    const apiKey = cleanLine(cfg?.apiKey || '');
+    if (!apiKey) throw new Error('Chats-LLM key is missing. Open AI examples settings and save the key first.');
+    const model = await chooseChatLlmModelDirect(cfg);
+    const res = await fetch(`${chatsLlmBaseUrl()}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'Return strict JSON only. Generate natural English learning examples with Arabic translations.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature,
+        max_tokens: maxTokens,
+        stream: false
+      })
+    });
+    const raw = await res.text();
+    let data = {};
+    try { data = JSON.parse(raw); } catch { data = { raw }; }
+    if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
+    const content = data?.choices?.[0]?.message?.content || data?.output || data?.message || raw;
+    return parseJsonLoose(content) || { raw: content };
+  }
+
+  async function fetchTemplateFromChatLlm(line) {
+    const cfg = (typeof getChatLlmConfig === 'function') ? getChatLlmConfig() : { apiKey: '', model: '' };
+    const payload = { line: cleanLine(line), apiKey: cfg.apiKey || '', model: cfg.model || '' };
+    try {
+      const res = await fetch('/api/chats-llm-extract-template', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
+      const t = data.template || data;
+      return normalizeAiTemplate(t, line);
+    } catch (proxyError) {
+      const msg = String(proxyError?.message || '');
+      console.warn('AI template extraction proxy failed:', proxyError);
+      if (!/proxy is missing|failed \(404\)|404/i.test(msg)) throw proxyError;
+      setStatus('AI proxy is missing. Trying direct Chats-LLM connection from the browser...');
+      const parsed = await callChatsLlmDirect(buildTemplateExtractPrompt(line), cfg, { temperature: 0.25, maxTokens: 950 });
+      const out = normalizeAiTemplate(parsed, line);
+      if (!out) throw new Error('Direct AI returned no valid reusable template.');
+      return out;
+    }
   }
 
   async function extractTemplateFromLineAsync(line) {
@@ -781,19 +933,20 @@
   async function fetchTemplateExamplesFromChatLlm(template, contextEn = '') {
     if (!template?.pattern) return [];
     const cfg = getChatLlmConfig();
+    const payload = {
+      pattern: template.pattern,
+      contextEn: contextEn || template.source || '',
+      slot: template.slot || '',
+      usageEn: template.usageEn || '',
+      usageAr: template.usageAr || '',
+      apiKey: cfg.apiKey || '',
+      model: cfg.model || ''
+    };
     try {
       const res = await fetch('/api/chats-llm-template-examples', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          pattern: template.pattern,
-          contextEn: contextEn || template.source || '',
-          slot: template.slot || '',
-          usageEn: template.usageEn || '',
-          usageAr: template.usageAr || '',
-          apiKey: cfg.apiKey || '',
-          model: cfg.model || ''
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
@@ -801,14 +954,32 @@
       return sanitizeTemplateExamples(examples.map(ex => ({
         en: cleanLine(ex.en || ''),
         ar: cleanLine(ex.ar || ''),
-        source: 'ai',
+        source: 'ai-proxy',
         slot: cleanLine(ex.slot || '')
       })), template.pattern, contextEn || template.source || '');
     } catch (e) {
-      console.warn('Chats-LLM template examples failed:', e);
-      if (String(e.message || '').includes('rejected') || String(e.message || '').includes('API key') || String(e.message || '').includes('missing')) {
-        setStatus(e.message || 'AI examples need setup.');
+      const msg = String(e?.message || '');
+      console.warn('Chats-LLM template examples proxy failed:', e);
+      if (/proxy is missing|failed \(404\)|404/i.test(msg)) {
+        try {
+          setStatus('AI examples proxy is missing. Trying direct Chats-LLM connection from the browser...');
+          const parsed = await callChatsLlmDirect(buildTemplateExamplesPrompt(template, contextEn), cfg, { temperature: 0.35, maxTokens: 900 });
+          const examples = Array.isArray(parsed?.examples) ? parsed.examples : [];
+          const clean = sanitizeTemplateExamples(examples.map(ex => ({
+            en: cleanLine(ex.en || ex.english || ''),
+            ar: cleanLine(ex.ar || ex.arabic || ''),
+            source: 'ai-direct',
+            slot: cleanLine(ex.slot || ex.replacement || '')
+          })), template.pattern, contextEn || template.source || '');
+          if (clean.length) return clean;
+          throw new Error('Direct AI returned no valid examples.');
+        } catch (directError) {
+          console.warn('Direct Chats-LLM template examples failed:', directError);
+          setStatus(String(directError?.message || 'AI direct connection failed.'));
+          return [];
+        }
       }
+      if (/rejected|API key|missing|rate limit|limit exceeded/i.test(msg)) setStatus(msg || 'AI examples need setup.');
       return [];
     }
   }

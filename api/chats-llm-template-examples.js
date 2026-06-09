@@ -112,27 +112,32 @@ Usage in Arabic: ${usageAr || ''}`;
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-chats-llm-key');
+  if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const apiKey = cleanLine(process.env.CHATS_LLM_API_KEY || req.body?.apiKey || req.headers['x-chats-llm-key'] || '');
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const apiKey = cleanLine(process.env.CHATS_LLM_API_KEY || body.apiKey || req.headers['x-chats-llm-key'] || '');
     if (!apiKey) {
       return res.status(400).json({ error: 'Chats-LLM API key is missing. Add it in AI examples settings or set CHATS_LLM_API_KEY in Vercel.' });
     }
 
-    const pattern = cleanLine(req.body?.pattern || '');
+    const pattern = cleanLine(body.pattern || '');
     if (!pattern || !/\[.+?\]/.test(pattern)) {
       return res.status(400).json({ error: 'A valid template with [placeholder] is required.' });
     }
 
-    const baseUrl = cleanLine(process.env.CHATS_LLM_BASE_URL || req.body?.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
-    const model = await chooseModel(baseUrl, apiKey, req.body?.model);
+    const baseUrl = cleanLine(process.env.CHATS_LLM_BASE_URL || body.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
+    const model = await chooseModel(baseUrl, apiKey, body.model);
     const prompt = buildPrompt({
       pattern,
-      contextEn: cleanLine(req.body?.contextEn || ''),
-      slot: cleanLine(req.body?.slot || ''),
-      usageEn: cleanLine(req.body?.usageEn || ''),
-      usageAr: cleanLine(req.body?.usageAr || '')
+      contextEn: cleanLine(body.contextEn || ''),
+      slot: cleanLine(body.slot || ''),
+      usageEn: cleanLine(body.usageEn || ''),
+      usageAr: cleanLine(body.usageAr || '')
     });
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
