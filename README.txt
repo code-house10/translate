@@ -90,3 +90,12 @@ Natural saved-template examples update
 - New button in Saved templates: Improve examples for one template.
 - New button in Saved templates: Improve all examples.
 - Improved examples remain saved locally and are synced to Supabase with the rest of saved words, phrases, templates, lines, and review progress.
+
+
+Natural template examples — Lara translation fix
+------------------------------------------------
+- The app no longer asks Lara to invent English template examples, because Lara is a translation engine and that could produce incomplete or unnatural results.
+- English template examples now come from a controlled daily-life example bank, so they are complete and natural.
+- Lara is used to translate those examples naturally into Arabic.
+- Bad old examples such as "examples of template", placeholder Arabic notes, double prepositions, or incomplete sentences are filtered out.
+- Use Saved templates -> Improve examples, or Improve all examples, to refresh old saved templates and sync the corrected examples to Supabase.

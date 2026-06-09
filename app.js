@@ -299,106 +299,123 @@
   function makeDailyTemplateExamples(pattern, sourceText = '') {
     const p = String(pattern || '').trim();
     const src = cleanLine(sourceText).toLowerCase();
+    const lower = p.toLowerCase();
+
+    const pack = arr => arr
+      .map(ex => typeof ex === 'string' ? { en: ex, ar: '' } : { en: cleanLine(ex.en || ''), ar: cleanLine(ex.ar || '') })
+      .map(ex => ({ ...ex, en: /[.!?]$/.test(ex.en) ? ex.en : ex.en + '.' }))
+      .filter(ex => ex.en && /[a-z]/i.test(ex.en) && !looksLikeBadTemplateExample(ex))
+      .slice(0, 3);
 
     if (/there(?:'s| is| are)\s+.*\s+left/i.test(src) || /^there(?:'s| is| are).*\[thing\].*left/i.test(p)) {
-      return [
+      return pack([
         { en: "There's some coffee left if you want a cup.", ar: 'باقي شوية قهوة لو تحب كوب.' },
         { en: "There's some pizza left in the fridge.", ar: 'باقي شوية بيتزا في الثلاجة.' },
         { en: "There's some money left after paying the bills.", ar: 'باقي بعض المال بعد دفع الفواتير.' }
-      ];
+      ]);
     }
 
     if (/shouldn['’]?t you be/i.test(p)) {
-      return [
+      return pack([
         { en: "Shouldn't you be at work by now?", ar: 'ألا يفترض أن تكون في العمل الآن؟' },
         { en: "Shouldn't you be getting ready for your class?", ar: 'ألا يفترض أن تستعد لحصتك؟' },
-        { en: "Shouldn't you be studying instead of scrolling?", ar: 'ألا يفترض أن تذاكر بدلًا من التصفح؟' }
-      ];
+        { en: "Shouldn't you be on your way to school?", ar: 'ألا يفترض أن تكون في طريقك إلى المدرسة؟' }
+      ]);
     }
 
     if (/how many times have i told you not to/i.test(p)) {
-      return [
+      return pack([
         { en: 'How many times have I told you not to touch my phone?', ar: 'كم مرة قلت لك ألا تلمس هاتفي؟' },
         { en: 'How many times have I told you not to interrupt me?', ar: 'كم مرة قلت لك ألا تقاطعني؟' },
         { en: 'How many times have I told you not to leave the door open?', ar: 'كم مرة قلت لك ألا تترك الباب مفتوحًا؟' }
-      ];
+      ]);
     }
 
-    if (/i (?:wanna|want to).*\[do something\]/i.test(p) || /\[do something\]/i.test(p)) {
-      const one = p.replace('[do something]', 'finish this first').replace('[something]', 'this first').replace('[thing]', 'phone').replace('[title / name / phrase]', 'that movie').replace('[...]', 'before I leave');
-      const two = p.replace('[do something]', 'talk to him for a minute').replace('[something]', 'the problem').replace('[thing]', 'message').replace('[title / name / phrase]', 'that song').replace('[...]', 'after work');
-      const three = p.replace('[do something]', 'make sure everything is okay').replace('[something]', 'what happened').replace('[thing]', 'bag').replace('[title / name / phrase]', 'that place').replace('[...]', 'when I get home');
-      return [
-        { en: one, ar: 'مثال يومي طبيعي باستخدام نفس القالب.' },
-        { en: two, ar: 'مثال يومي طبيعي في موقف مختلف.' },
-        { en: three, ar: 'مثال تطبيقي طبيعي على نفس التركيبة.' }
-      ];
+    if (/\bi got some time\b|\bi have some time\b|\bi have got some time\b/i.test(p)) {
+      return pack([
+        { en: 'I got some time before class.', ar: 'لدي بعض الوقت قبل الحصة.' },
+        { en: 'I got some time if you want to talk.', ar: 'لدي بعض الوقت إذا أردت أن نتكلم.' },
+        { en: 'I got some time before the meeting.', ar: 'لدي بعض الوقت قبل الاجتماع.' }
+      ]);
     }
 
-    if (/\[somewhere \/ doing something\]/i.test(p)) {
-      return [
-        { en: "Shouldn't you be at work by now?", ar: 'ألا يفترض أن تكون في العمل الآن؟' },
-        { en: "Shouldn't you be getting ready?", ar: 'ألا يفترض أن تكون تستعد؟' },
-        { en: "Shouldn't you be on your way to school?", ar: 'ألا يفترض أن تكون في طريقك إلى المدرسة؟' }
-      ];
+    if (/besides,? i (?:wanna|want to)/i.test(lower) || /^besides,?\s*i/i.test(lower)) {
+      return pack([
+        { en: 'Besides, I wanna finish this episode first.', ar: 'وبعدين أنا عايز أخلص الحلقة دي الأول.' },
+        { en: 'Besides, I wanna talk to him before I decide.', ar: 'وفوق ذلك أريد أن أتحدث معه قبل أن أقرر.' },
+        { en: 'Besides, I wanna make sure everything is okay.', ar: 'ثم إنني أريد أن أتأكد أن كل شيء بخير.' }
+      ]);
+    }
+
+    if (/i (?:wanna|want to) \[do something\]/i.test(p)) {
+      return pack([
+        { en: 'I wanna finish this before I leave.', ar: 'أريد أن أنهي هذا قبل أن أخرج.' },
+        { en: 'I wanna talk to you for a minute.', ar: 'أريد أن أتحدث معك لدقيقة.' },
+        { en: 'I wanna make sure everything is okay.', ar: 'أريد أن أتأكد أن كل شيء بخير.' }
+      ]);
     }
 
     if (/you like \[something\]/i.test(p)) {
-      return [
+      return pack([
         { en: 'You like this song?', ar: 'هل تعجبك هذه الأغنية؟' },
         { en: 'You like spicy food?', ar: 'هل تحب الأكل الحار؟' },
-        { en: 'You like that teacher?', ar: 'هل يعجبك ذلك المدرس؟' }
-      ];
+        { en: 'You like that place?', ar: 'هل يعجبك ذلك المكان؟' }
+      ]);
     }
 
     if (/i love \[something\]/i.test(p)) {
-      return [
-        { en: 'I love this idea!', ar: 'أنا أحب هذه الفكرة جدًا!' },
+      return pack([
+        { en: 'I love this idea!', ar: 'أحب هذه الفكرة جدًا!' },
         { en: 'I love the way you explain things.', ar: 'أحب طريقتك في شرح الأمور.' },
         { en: 'I love that place!', ar: 'أنا أحب ذلك المكان جدًا!' }
-      ];
+      ]);
     }
 
-    const sampleA = p
-      .replace('[title / name / phrase]', 'that movie')
-      .replace('[person]', 'him')
-      .replace('[someone]', 'my friend')
-      .replace('[something]', 'the problem')
-      .replace('[somewhere]', 'work')
-      .replace('[thing]', 'phone')
-      .replace('[...]', 'today');
-    const sampleB = p
-      .replace('[title / name / phrase]', 'this episode')
-      .replace('[person]', 'her')
-      .replace('[someone]', 'my brother')
-      .replace('[something]', 'what happened')
-      .replace('[somewhere]', 'school')
-      .replace('[thing]', 'bag')
-      .replace('[...]', 'before the meeting');
-    const sampleC = p
-      .replace('[title / name / phrase]', 'that restaurant')
-      .replace('[person]', 'them')
-      .replace('[someone]', 'the manager')
-      .replace('[something]', 'this mistake')
-      .replace('[somewhere]', 'home')
-      .replace('[thing]', 'message')
-      .replace('[...]', 'after class');
-    return [
-      { en: sampleA, ar: 'مثال يومي طبيعي باستخدام نفس القالب.' },
-      { en: sampleB, ar: 'مثال يومي طبيعي في موقف مختلف.' },
-      { en: sampleC, ar: 'مثال تطبيقي طبيعي على نفس التركيبة.' }
-    ].filter(x => x.en && !/\[/.test(x.en));
+    if (/i did everything i could to/i.test(p)) {
+      return pack([
+        { en: 'I did everything I could to help him.', ar: 'فعلت كل ما بوسعي لمساعدته.' },
+        { en: 'I did everything I could to fix the problem.', ar: 'فعلت كل ما بوسعي لإصلاح المشكلة.' },
+        { en: 'I did everything I could to reach her.', ar: 'فعلت كل ما بوسعي للتواصل معها.' }
+      ]);
+    }
+
+    if (/i['’]?m sure by now you['’]?ve (?:worked|figured) out/i.test(p)) {
+      return pack([
+        { en: "I'm sure by now you've figured out what happened.", ar: 'أنا متأكد أنك الآن فهمت ما حدث.' },
+        { en: "I'm sure by now you've worked out the truth.", ar: 'أنا متأكد أنك الآن اكتشفت الحقيقة.' },
+        { en: "I'm sure by now you've figured out why I left.", ar: 'أنا متأكد أنك الآن عرفت لماذا رحلت.' }
+      ]);
+    }
+
+    if (/have you got a problem/i.test(p) || /do you have a problem/i.test(p)) {
+      return pack([
+        { en: 'Have you got a problem with the app?', ar: 'هل لديك مشكلة في التطبيق؟' },
+        { en: 'Have you got a problem with that?', ar: 'هل لديك اعتراض على ذلك؟' },
+        { en: 'Have you got a problem with me?', ar: 'هل لديك مشكلة معي؟' }
+      ]);
+    }
+
+    if (/have you got any plans|do you have any plans|have you made any plans/i.test(p)) {
+      return pack([
+        { en: 'Do you have any plans tonight?', ar: 'هل لديك أي خطط الليلة؟' },
+        { en: 'Have you got any plans for the weekend?', ar: 'هل لديك أي خطط لعطلة نهاية الأسبوع؟' },
+        { en: 'Have you made any plans for Eid yet?', ar: 'هل رتبت أي خطط للعيد حتى الآن؟' }
+      ]);
+    }
+
+    // For unknown templates, do NOT create mechanical examples by random word replacement.
+    // Bad examples are worse than no examples. The user can use "Improve examples" after Lara is configured.
+    return [];
   }
 
   function genericTemplateFromLine(line) {
     const text = cleanLine(line).replace(/\s+/g, ' ').trim();
-    if (!text || text.length < 12) return null;
+    if (!text || tokenize(text).length < 4) return null;
 
-    const leftMatch = text.match(/^(there['’]?s|there is|there are)\s+(?:some|any|a little|a few)?\s*(.+?)\s+left(?:\s+(?:on|in|at|for|with)\s+.+?)?([.!?]*)$/i);
-    if (leftMatch) {
+    if (/^(?:there['’]?s|there is|there are)\s+/i.test(text) && /\bleft\b/i.test(text)) {
       return {
         pattern: "There's some [thing] left.",
-        slot: leftMatch[2],
+        slot: text,
         name: 'There is something left',
         usageEn: 'Use it when you want to say that a little amount of something still remains.',
         usageAr: 'تستخدمها عندما تريد أن تقول إن هناك كمية بسيطة من شيء ما ما زالت موجودة.',
@@ -406,27 +423,32 @@
       };
     }
 
-    let pattern = text;
-    pattern = pattern.replace(/"[^"]+"|'[^']+'/g, '[title / name / phrase]');
-    pattern = pattern.replace(/\bto\s+([a-z]+(?:\s+[a-z]+){0,5})([.!?]*)$/i, 'to [do something]$2');
-    pattern = pattern.replace(/\b(my|your|his|her|our|their)\s+[a-z]+\b/gi, '$1 [thing]');
-
-    if (pattern === text) {
-      const words = tokenize(text);
-      if (words.length < 5) return null;
-      // Use a conservative fallback. We do not create a fake sentence by adding random words after [...]
-      // because that created unnatural examples such as "left on in my own situation".
-      pattern = words.slice(0, Math.min(5, words.length)).join(' ') + ' [...]';
+    // Conservative fallback: only save templates when the structure is useful and can produce natural examples.
+    // We intentionally avoid weak "first words + [...]" templates because they created incomplete English examples.
+    if (/^i\s+(?:wanna|want to)\s+/i.test(text)) {
+      return {
+        pattern: 'I wanna [do something].',
+        slot: text.replace(/^i\s+(?:wanna|want to)\s+/i, ''),
+        name: 'I wanna...',
+        usageEn: 'Use it when you want to say what you would like to do in a casual way.',
+        usageAr: 'تستخدمها عندما تريد أن تقول ما ترغب في فعله بطريقة عادية وغير رسمية.',
+        examples: makeDailyTemplateExamples('I wanna [do something].', text)
+      };
     }
 
-    return {
-      pattern,
-      slot: '',
-      name: 'General reusable pattern',
-      usageEn: 'Use this as a reusable sentence frame. Replace the bracketed part with your own daily-life situation.',
-      usageAr: 'استخدمه كقالب جملة قابل للتغيير. بدّل الجزء بين الأقواس بموقف يومي طبيعي.',
-      examples: makeDailyTemplateExamples(pattern, text)
-    };
+    if (/^i\s+(?:need|have) to\s+/i.test(text)) {
+      const pattern = text.replace(/^i\s+(need|have) to\s+.+$/i, (m, v) => `I ${v.toLowerCase()} to [do something].`);
+      return {
+        pattern,
+        slot: text,
+        name: 'I need/have to...',
+        usageEn: 'Use it when you want to talk about something necessary or important to do.',
+        usageAr: 'تستخدمها عندما تتحدث عن شيء ضروري أو مهم أن تفعله.',
+        examples: []
+      };
+    }
+
+    return null;
   }
 
   function extractTemplateFromLine(line) {
@@ -460,28 +482,46 @@
   }
 
 
+  function looksLikeTemplatePlaceholderArabic(ar) {
+    const text = cleanLine(ar || '');
+    if (!text) return false;
+    return /مثال\s*(يومي|تطبيقي)|نفس القالب|موقف مختلف|تركيبة|باستخدام نفس القالب/i.test(text);
+  }
+
   function looksLikeBadTemplateExample(ex) {
     const text = cleanLine(typeof ex === 'string' ? ex : (ex?.en || ''));
     if (!text) return true;
+    if (!/[a-z]/i.test(text)) return true;
     if (/\[.*?\]/.test(text)) return true;
-    if (/\b(in my own situation|using the same template|same template)\b/i.test(text)) return true;
+    if (/\b(examples? of template|using the same template|same template|in my own situation)\b/i.test(text)) return true;
     if (/مثال تطبيقي|نفس القالب/i.test(text)) return true;
     if (/\bleft\s+on\s+in\b/i.test(text)) return true;
-    if (/\b(on|in|at|for|with)\s+(on|in|at|for|with)\b/i.test(text)) return true;
+    if (/\b(left on|left at|left with)\s+(today|before|after|when)\b/i.test(text)) return true;
+    if (/\b(on|in|at|for|with|to|of|from|by|about)\s+(on|in|at|for|with|to|of|from|by|about)\b/i.test(text)) return true;
+    if (/\b(?:on|in|at|for|with|to|of|from|by|about|the|a|an)\s*[.!?]?$/i.test(text)) return true;
+    const words = tokenize(text);
+    if (words.length < 3) return true;
     return false;
   }
 
   function sanitizeTemplateExamples(examples, pattern = '', contextEn = '') {
-    const clean = (Array.isArray(examples) ? examples : [])
-      .map(ex => typeof ex === 'string' ? { en: ex, ar: '' } : { en: cleanLine(ex?.en || ''), ar: cleanLine(ex?.ar || '') })
-      .filter(ex => ex.en && !looksLikeBadTemplateExample(ex));
-    if (clean.length >= 3) return clean.slice(0, 3);
-    const fallback = makeDailyTemplateExamples(pattern, contextEn).filter(ex => ex.en && !looksLikeBadTemplateExample(ex));
-    const seen = new Set(clean.map(ex => ex.en.toLowerCase()));
-    for (const ex of fallback) {
-      if (!seen.has(ex.en.toLowerCase())) { clean.push(ex); seen.add(ex.en.toLowerCase()); }
-      if (clean.length >= 3) break;
-    }
+    const clean = [];
+    const seen = new Set();
+    const push = ex => {
+      const item = typeof ex === 'string'
+        ? { en: cleanLine(ex), ar: '' }
+        : { en: cleanLine(ex?.en || ''), ar: cleanLine(ex?.ar || '') };
+      if (!item.en || looksLikeBadTemplateExample(item)) return;
+      if (looksLikeTemplatePlaceholderArabic(item.ar)) item.ar = '';
+      if (!/[.!?]$/.test(item.en)) item.en += '.';
+      const key = item.en.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      clean.push(item);
+    };
+
+    (Array.isArray(examples) ? examples : []).forEach(push);
+    if (clean.length < 3) makeDailyTemplateExamples(pattern, contextEn).forEach(push);
     return clean.slice(0, 3);
   }
 
@@ -504,46 +544,60 @@
     }).filter(x => x.en && /[a-z]/i.test(x.en)).slice(0, 3);
   }
 
+  async function translateTemplateExamplesWithLara(examples) {
+    const list = sanitizeTemplateExamples(examples || []);
+    if (!list.length) return [];
+
+    const need = list
+      .map((ex, index) => ({ ex, index }))
+      .filter(x => !x.ex.ar || looksLikeTemplatePlaceholderArabic(x.ex.ar));
+
+    if (!need.length) return list.slice(0, 3);
+
+    try {
+      const translated = await translateLaraItems(need.map(x => ({ index: x.index, text: x.ex.en })));
+      for (const row of translated || []) {
+        const idx = Number(row.index);
+        if (list[idx] && row.ar) list[idx].ar = cleanLine(row.ar);
+      }
+    } catch (e) {
+      console.warn('Lara template example translation failed:', e);
+    }
+    return list.slice(0, 3);
+  }
+
   async function generateTemplateExamplesWithLara(template, contextEn = '') {
     if (!template?.pattern) return [];
-    try {
-      const res = await fetch('/api/lara-translate', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(getLaraPayload({
-          text: `Sentence template: ${template.pattern}\nMovie context: ${cleanLine(contextEn || template.source || '')}\nOriginal replaced part: ${template.slot || ''}`,
-          instructions: [
-            'Create exactly 3 natural everyday English examples using the same sentence template.',
-            'Each example must sound like real daily conversation, not a literal or random replacement.',
-            'Do not use strange combinations such as double prepositions or "in my own situation".',
-            'Translate each example naturally into Arabic.',
-            'Return ONLY valid JSON array with objects like {"en":"...","ar":"..."}. No markdown.'
-          ]
-        }))
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.translatedText) {
-        const parsed = parseLaraExamples(data.translatedText).filter(ex => !looksLikeBadTemplateExample(ex));
-        if (parsed.length >= 2) return parsed.slice(0, 3);
-      }
-    } catch (e) { console.warn('Lara template examples failed:', e); }
-    return [];
+    // Lara is a translation engine, not a sentence generator. To avoid broken English,
+    // the app first creates safe daily-life English examples from controlled templates,
+    // then uses Lara to translate those examples naturally into Arabic.
+    const curated = sanitizeTemplateExamples(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''), template.pattern, contextEn || template.source || '');
+    return await translateTemplateExamplesWithLara(curated);
   }
 
   async function ensureNaturalTemplateExamples(template, contextEn = '', force = false) {
-    const baseExamples = sanitizeTemplateExamples(template.examples || [], template.pattern, contextEn || template.source || '');
-    if (!force && baseExamples.length >= 3 && !(template.examples || []).some(looksLikeBadTemplateExample)) {
+    let baseExamples = sanitizeTemplateExamples(template.examples || [], template.pattern, contextEn || template.source || '');
+    const hasBadOriginal = (template.examples || []).some(ex => looksLikeBadTemplateExample(ex) || looksLikeTemplatePlaceholderArabic(ex?.ar));
+    const needsArabic = baseExamples.some(ex => !ex.ar || looksLikeTemplatePlaceholderArabic(ex.ar));
+
+    if (!force && baseExamples.length >= 3 && !hasBadOriginal && !needsArabic) {
       return { ...template, examples: baseExamples };
     }
-    const aiExamples = await generateTemplateExamplesWithLara(template, contextEn || template.source || '');
-    const finalExamples = sanitizeTemplateExamples(aiExamples.length ? aiExamples : baseExamples, template.pattern, contextEn || template.source || '');
+
+    if (force || baseExamples.length < 3 || hasBadOriginal) {
+      const fresh = sanitizeTemplateExamples(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''), template.pattern, contextEn || template.source || '');
+      if (fresh.length) baseExamples = fresh;
+    }
+
+    const translatedExamples = await translateTemplateExamplesWithLara(baseExamples);
+    const finalExamples = sanitizeTemplateExamples(translatedExamples.length ? translatedExamples : baseExamples, template.pattern, contextEn || template.source || '');
     return { ...template, examples: finalExamples };
   }
 
   async function refreshTemplateExamplesByIndex(index) {
     const item = state.savedWords[Number(index)];
     if (!item || item.kind !== 'template') return toast('Template not found');
-    setStatus('Creating natural daily examples...');
+    setStatus('Creating natural examples and translating them with Lara...');
     const template = {
       pattern: item.word,
       source: item.contextEn || '',
@@ -558,8 +612,8 @@
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast('Natural examples updated');
-    setStatus('Template examples updated and synced');
+    toast('Examples updated and translated');
+    setStatus('Template examples updated, translated, and synced');
   }
 
   async function refreshAllTemplateExamples() {
@@ -567,7 +621,7 @@
       .map((item, index) => ({ item, index }))
       .filter(x => x.item && x.item.kind === 'template');
     if (!templateIndexes.length) return toast('No saved templates yet');
-    setStatus('Improving saved template examples...');
+    setStatus('Improving templates and translating examples with Lara...');
     let count = 0;
     for (const { item, index } of templateIndexes) {
       const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
@@ -580,8 +634,8 @@
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast(`${count} template examples improved`);
-    setStatus('Natural daily examples saved to cloud sync queue');
+    toast(`${count} template examples improved and translated`);
+    setStatus('Natural translated examples saved to cloud sync queue');
   }
 
   const CLOUD_CONFIG = {
