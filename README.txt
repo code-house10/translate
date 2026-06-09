@@ -81,3 +81,12 @@ Lara settings cloud sync update:
 - The app stores Lara Access Key ID and Secret locally and inside Supabase user_library.saved_words as a hidden settings record.
 - Use Test Lara to verify the Vercel /api/lara-translate proxy is working.
 - If Test Lara says the API proxy is missing, upload the full project folder to Vercel, not the standalone HTML only.
+
+Natural saved-template examples update
+-------------------------------------
+- Saved templates now generate natural daily-life examples instead of mechanical placeholder examples.
+- The app avoids bad examples such as double prepositions or "in my own situation".
+- Added a specific daily-life template for "There's some [thing] left." with natural examples like coffee, pizza, and money.
+- New button in Saved templates: Improve examples for one template.
+- New button in Saved templates: Improve all examples.
+- Improved examples remain saved locally and are synced to Supabase with the rest of saved words, phrases, templates, lines, and review progress.

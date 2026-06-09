@@ -205,6 +205,21 @@
       })
     },
     {
+      name: 'There is something left',
+      re: /^(?:there['’]?s|there is|there are)\s+(?:some|any|a little|a few)?\s*(.+?)\s+left(?:\s+(?:on|in|at|for|with)\s+.+?)?([.!?]*)$/i,
+      build: m => ({
+        pattern: "There's some [thing] left.",
+        slot: m[1],
+        usageEn: 'Use it when you want to say that a little amount of something still remains.',
+        usageAr: 'تستخدمها عندما تريد أن تقول إن هناك كمية بسيطة من شيء ما ما زالت موجودة.',
+        examples: [
+          { en: "There's some coffee left if you want a cup.", ar: 'باقي شوية قهوة لو تحب كوب.' },
+          { en: "There's some pizza left in the fridge.", ar: 'باقي شوية بيتزا في الثلاجة.' },
+          { en: "There's some money left after paying the bills.", ar: 'باقي بعض المال بعد دفع الفواتير.' }
+        ]
+      })
+    },
+    {
       name: 'Besides, I wanna…',
       re: /^(?:besides,?\s*)?i (?:wanna|want to) (.+?)([.!?]*)$/i,
       build: m => ({
@@ -281,28 +296,136 @@
     }
   ];
 
+  function makeDailyTemplateExamples(pattern, sourceText = '') {
+    const p = String(pattern || '').trim();
+    const src = cleanLine(sourceText).toLowerCase();
+
+    if (/there(?:'s| is| are)\s+.*\s+left/i.test(src) || /^there(?:'s| is| are).*\[thing\].*left/i.test(p)) {
+      return [
+        { en: "There's some coffee left if you want a cup.", ar: 'باقي شوية قهوة لو تحب كوب.' },
+        { en: "There's some pizza left in the fridge.", ar: 'باقي شوية بيتزا في الثلاجة.' },
+        { en: "There's some money left after paying the bills.", ar: 'باقي بعض المال بعد دفع الفواتير.' }
+      ];
+    }
+
+    if (/shouldn['’]?t you be/i.test(p)) {
+      return [
+        { en: "Shouldn't you be at work by now?", ar: 'ألا يفترض أن تكون في العمل الآن؟' },
+        { en: "Shouldn't you be getting ready for your class?", ar: 'ألا يفترض أن تستعد لحصتك؟' },
+        { en: "Shouldn't you be studying instead of scrolling?", ar: 'ألا يفترض أن تذاكر بدلًا من التصفح؟' }
+      ];
+    }
+
+    if (/how many times have i told you not to/i.test(p)) {
+      return [
+        { en: 'How many times have I told you not to touch my phone?', ar: 'كم مرة قلت لك ألا تلمس هاتفي؟' },
+        { en: 'How many times have I told you not to interrupt me?', ar: 'كم مرة قلت لك ألا تقاطعني؟' },
+        { en: 'How many times have I told you not to leave the door open?', ar: 'كم مرة قلت لك ألا تترك الباب مفتوحًا؟' }
+      ];
+    }
+
+    if (/i (?:wanna|want to).*\[do something\]/i.test(p) || /\[do something\]/i.test(p)) {
+      const one = p.replace('[do something]', 'finish this first').replace('[something]', 'this first').replace('[thing]', 'phone').replace('[title / name / phrase]', 'that movie').replace('[...]', 'before I leave');
+      const two = p.replace('[do something]', 'talk to him for a minute').replace('[something]', 'the problem').replace('[thing]', 'message').replace('[title / name / phrase]', 'that song').replace('[...]', 'after work');
+      const three = p.replace('[do something]', 'make sure everything is okay').replace('[something]', 'what happened').replace('[thing]', 'bag').replace('[title / name / phrase]', 'that place').replace('[...]', 'when I get home');
+      return [
+        { en: one, ar: 'مثال يومي طبيعي باستخدام نفس القالب.' },
+        { en: two, ar: 'مثال يومي طبيعي في موقف مختلف.' },
+        { en: three, ar: 'مثال تطبيقي طبيعي على نفس التركيبة.' }
+      ];
+    }
+
+    if (/\[somewhere \/ doing something\]/i.test(p)) {
+      return [
+        { en: "Shouldn't you be at work by now?", ar: 'ألا يفترض أن تكون في العمل الآن؟' },
+        { en: "Shouldn't you be getting ready?", ar: 'ألا يفترض أن تكون تستعد؟' },
+        { en: "Shouldn't you be on your way to school?", ar: 'ألا يفترض أن تكون في طريقك إلى المدرسة؟' }
+      ];
+    }
+
+    if (/you like \[something\]/i.test(p)) {
+      return [
+        { en: 'You like this song?', ar: 'هل تعجبك هذه الأغنية؟' },
+        { en: 'You like spicy food?', ar: 'هل تحب الأكل الحار؟' },
+        { en: 'You like that teacher?', ar: 'هل يعجبك ذلك المدرس؟' }
+      ];
+    }
+
+    if (/i love \[something\]/i.test(p)) {
+      return [
+        { en: 'I love this idea!', ar: 'أنا أحب هذه الفكرة جدًا!' },
+        { en: 'I love the way you explain things.', ar: 'أحب طريقتك في شرح الأمور.' },
+        { en: 'I love that place!', ar: 'أنا أحب ذلك المكان جدًا!' }
+      ];
+    }
+
+    const sampleA = p
+      .replace('[title / name / phrase]', 'that movie')
+      .replace('[person]', 'him')
+      .replace('[someone]', 'my friend')
+      .replace('[something]', 'the problem')
+      .replace('[somewhere]', 'work')
+      .replace('[thing]', 'phone')
+      .replace('[...]', 'today');
+    const sampleB = p
+      .replace('[title / name / phrase]', 'this episode')
+      .replace('[person]', 'her')
+      .replace('[someone]', 'my brother')
+      .replace('[something]', 'what happened')
+      .replace('[somewhere]', 'school')
+      .replace('[thing]', 'bag')
+      .replace('[...]', 'before the meeting');
+    const sampleC = p
+      .replace('[title / name / phrase]', 'that restaurant')
+      .replace('[person]', 'them')
+      .replace('[someone]', 'the manager')
+      .replace('[something]', 'this mistake')
+      .replace('[somewhere]', 'home')
+      .replace('[thing]', 'message')
+      .replace('[...]', 'after class');
+    return [
+      { en: sampleA, ar: 'مثال يومي طبيعي باستخدام نفس القالب.' },
+      { en: sampleB, ar: 'مثال يومي طبيعي في موقف مختلف.' },
+      { en: sampleC, ar: 'مثال تطبيقي طبيعي على نفس التركيبة.' }
+    ].filter(x => x.en && !/\[/.test(x.en));
+  }
+
   function genericTemplateFromLine(line) {
     const text = cleanLine(line).replace(/\s+/g, ' ').trim();
     if (!text || text.length < 12) return null;
+
+    const leftMatch = text.match(/^(there['’]?s|there is|there are)\s+(?:some|any|a little|a few)?\s*(.+?)\s+left(?:\s+(?:on|in|at|for|with)\s+.+?)?([.!?]*)$/i);
+    if (leftMatch) {
+      return {
+        pattern: "There's some [thing] left.",
+        slot: leftMatch[2],
+        name: 'There is something left',
+        usageEn: 'Use it when you want to say that a little amount of something still remains.',
+        usageAr: 'تستخدمها عندما تريد أن تقول إن هناك كمية بسيطة من شيء ما ما زالت موجودة.',
+        examples: makeDailyTemplateExamples("There's some [thing] left.", text)
+      };
+    }
+
     let pattern = text;
     pattern = pattern.replace(/"[^"]+"|'[^']+'/g, '[title / name / phrase]');
     pattern = pattern.replace(/\bto\s+([a-z]+(?:\s+[a-z]+){0,5})([.!?]*)$/i, 'to [do something]$2');
     pattern = pattern.replace(/\b(my|your|his|her|our|their)\s+[a-z]+\b/gi, '$1 [thing]');
+
     if (pattern === text) {
       const words = tokenize(text);
       if (words.length < 5) return null;
+      // Use a conservative fallback. We do not create a fake sentence by adding random words after [...]
+      // because that created unnatural examples such as "left on in my own situation".
       pattern = words.slice(0, Math.min(5, words.length)).join(' ') + ' [...]';
     }
+
     return {
       pattern,
       slot: '',
       name: 'General reusable pattern',
-      usageEn: 'Use this as a reusable sentence frame. Replace the bracketed part with your own situation.',
-      usageAr: 'استخدمه كقالب جملة قابل للتغيير. بدّل الجزء بين الأقواس حسب موقفك.',
-      examples: [
-        { en: pattern, ar: 'استخدم نفس القالب وغيّر الجزء بين الأقواس حسب الموقف.' },
-        { en: pattern.replace('[do something]', 'talk to him').replace('[something]', 'this show').replace('[...]', 'in my own situation'), ar: 'مثال تطبيقي باستخدام نفس القالب في موقف مختلف.' }
-      ]
+      usageEn: 'Use this as a reusable sentence frame. Replace the bracketed part with your own daily-life situation.',
+      usageAr: 'استخدمه كقالب جملة قابل للتغيير. بدّل الجزء بين الأقواس بموقف يومي طبيعي.',
+      examples: makeDailyTemplateExamples(pattern, text)
     };
   }
 
@@ -334,6 +457,131 @@
       if (res.ok && data.translatedText) return String(data.translatedText).trim();
     } catch (e) { console.warn('Lara template translation failed:', e); }
     return template.usageAr || '';
+  }
+
+
+  function looksLikeBadTemplateExample(ex) {
+    const text = cleanLine(typeof ex === 'string' ? ex : (ex?.en || ''));
+    if (!text) return true;
+    if (/\[.*?\]/.test(text)) return true;
+    if (/\b(in my own situation|using the same template|same template)\b/i.test(text)) return true;
+    if (/مثال تطبيقي|نفس القالب/i.test(text)) return true;
+    if (/\bleft\s+on\s+in\b/i.test(text)) return true;
+    if (/\b(on|in|at|for|with)\s+(on|in|at|for|with)\b/i.test(text)) return true;
+    return false;
+  }
+
+  function sanitizeTemplateExamples(examples, pattern = '', contextEn = '') {
+    const clean = (Array.isArray(examples) ? examples : [])
+      .map(ex => typeof ex === 'string' ? { en: ex, ar: '' } : { en: cleanLine(ex?.en || ''), ar: cleanLine(ex?.ar || '') })
+      .filter(ex => ex.en && !looksLikeBadTemplateExample(ex));
+    if (clean.length >= 3) return clean.slice(0, 3);
+    const fallback = makeDailyTemplateExamples(pattern, contextEn).filter(ex => ex.en && !looksLikeBadTemplateExample(ex));
+    const seen = new Set(clean.map(ex => ex.en.toLowerCase()));
+    for (const ex of fallback) {
+      if (!seen.has(ex.en.toLowerCase())) { clean.push(ex); seen.add(ex.en.toLowerCase()); }
+      if (clean.length >= 3) break;
+    }
+    return clean.slice(0, 3);
+  }
+
+  function parseLaraExamples(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return [];
+    let jsonText = raw;
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (match) jsonText = match[0];
+    try {
+      const arr = JSON.parse(jsonText);
+      if (Array.isArray(arr)) {
+        return arr.map(x => ({ en: cleanLine(x.en || x.english || ''), ar: cleanLine(x.ar || x.arabic || '') })).filter(x => x.en);
+      }
+    } catch {}
+    return raw.split(/\n+/).map(line => {
+      const cleaned = line.replace(/^\s*[-*\d.)]+\s*/, '').trim();
+      const parts = cleaned.split(/\s+[—–-]\s+|\s+=\s+/);
+      return { en: cleanLine(parts[0] || ''), ar: cleanLine(parts.slice(1).join(' - ') || '') };
+    }).filter(x => x.en && /[a-z]/i.test(x.en)).slice(0, 3);
+  }
+
+  async function generateTemplateExamplesWithLara(template, contextEn = '') {
+    if (!template?.pattern) return [];
+    try {
+      const res = await fetch('/api/lara-translate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(getLaraPayload({
+          text: `Sentence template: ${template.pattern}\nMovie context: ${cleanLine(contextEn || template.source || '')}\nOriginal replaced part: ${template.slot || ''}`,
+          instructions: [
+            'Create exactly 3 natural everyday English examples using the same sentence template.',
+            'Each example must sound like real daily conversation, not a literal or random replacement.',
+            'Do not use strange combinations such as double prepositions or "in my own situation".',
+            'Translate each example naturally into Arabic.',
+            'Return ONLY valid JSON array with objects like {"en":"...","ar":"..."}. No markdown.'
+          ]
+        }))
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.translatedText) {
+        const parsed = parseLaraExamples(data.translatedText).filter(ex => !looksLikeBadTemplateExample(ex));
+        if (parsed.length >= 2) return parsed.slice(0, 3);
+      }
+    } catch (e) { console.warn('Lara template examples failed:', e); }
+    return [];
+  }
+
+  async function ensureNaturalTemplateExamples(template, contextEn = '', force = false) {
+    const baseExamples = sanitizeTemplateExamples(template.examples || [], template.pattern, contextEn || template.source || '');
+    if (!force && baseExamples.length >= 3 && !(template.examples || []).some(looksLikeBadTemplateExample)) {
+      return { ...template, examples: baseExamples };
+    }
+    const aiExamples = await generateTemplateExamplesWithLara(template, contextEn || template.source || '');
+    const finalExamples = sanitizeTemplateExamples(aiExamples.length ? aiExamples : baseExamples, template.pattern, contextEn || template.source || '');
+    return { ...template, examples: finalExamples };
+  }
+
+  async function refreshTemplateExamplesByIndex(index) {
+    const item = state.savedWords[Number(index)];
+    if (!item || item.kind !== 'template') return toast('Template not found');
+    setStatus('Creating natural daily examples...');
+    const template = {
+      pattern: item.word,
+      source: item.contextEn || '',
+      slot: item.templateSlot || '',
+      examples: item.examples || []
+    };
+    const improved = await ensureNaturalTemplateExamples(template, item.contextEn || '', true);
+    item.examples = improved.examples;
+    item.updatedAt = new Date().toISOString();
+    state.savedWords[index] = normalizeSavedWord(item);
+    writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord));
+    debounceSave();
+    scheduleCloudLibrarySync();
+    showSaved('templates');
+    toast('Natural examples updated');
+    setStatus('Template examples updated and synced');
+  }
+
+  async function refreshAllTemplateExamples() {
+    const templateIndexes = state.savedWords
+      .map((item, index) => ({ item, index }))
+      .filter(x => x.item && x.item.kind === 'template');
+    if (!templateIndexes.length) return toast('No saved templates yet');
+    setStatus('Improving saved template examples...');
+    let count = 0;
+    for (const { item, index } of templateIndexes) {
+      const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
+      const improved = await ensureNaturalTemplateExamples(template, item.contextEn || '', true);
+      state.savedWords[index] = normalizeSavedWord({ ...item, examples: improved.examples, updatedAt: new Date().toISOString() });
+      count++;
+      if (count % 5 === 0) { writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord)); scheduleCloudLibrarySync(); setStatus(`Improved ${count} templates...`); }
+    }
+    writeJSON('jm_saved_words', state.savedWords.map(normalizeSavedWord));
+    debounceSave();
+    scheduleCloudLibrarySync();
+    showSaved('templates');
+    toast(`${count} template examples improved`);
+    setStatus('Natural daily examples saved to cloud sync queue');
   }
 
   const CLOUD_CONFIG = {
@@ -1296,17 +1544,18 @@
     const contextEn = cleanLine(item.en);
     const contextAr = item.ar || '';
     const ar = await translateTemplateMeaning(template, contextEn);
-    saveWord(template.pattern, ar || template.usageAr || '', {
+    const naturalTemplate = await ensureNaturalTemplateExamples(template, contextEn);
+    saveWord(naturalTemplate.pattern, ar || naturalTemplate.usageAr || '', {
       kind: 'template',
       contextEn,
       contextAr,
       sourceLineKey: lineKey(item),
       startTime: item.startTime || 0,
-      templateSlot: template.slot || '',
-      templateUsageEn: template.usageEn || '',
-      templateUsageAr: template.usageAr || '',
-      templateRule: template.rule || template.name || '',
-      examples: template.examples || []
+      templateSlot: naturalTemplate.slot || '',
+      templateUsageEn: naturalTemplate.usageEn || '',
+      templateUsageAr: naturalTemplate.usageAr || '',
+      templateRule: naturalTemplate.rule || naturalTemplate.name || '',
+      examples: naturalTemplate.examples || []
     });
     setStatus('Template saved for smart review');
   }
@@ -1324,19 +1573,20 @@
       seen.add(key);
       const item = state.subtitles[i];
       const ar = await translateTemplateMeaning(template, cleanLine(item.en));
+      const naturalTemplate = await ensureNaturalTemplateExamples(template, cleanLine(item.en));
       state.savedWords.unshift(normalizeSavedWord({
         kind: 'template',
-        word: template.pattern,
-        ar: ar || template.usageAr || '',
+        word: naturalTemplate.pattern,
+        ar: ar || naturalTemplate.usageAr || '',
         contextEn: cleanLine(item.en),
         contextAr: item.ar || '',
         sourceLineKey: lineKey(item),
         startTime: item.startTime || 0,
-        templateSlot: template.slot || '',
-        templateUsageEn: template.usageEn || '',
-        templateUsageAr: template.usageAr || '',
-        templateRule: template.rule || template.name || '',
-        examples: template.examples || [],
+        templateSlot: naturalTemplate.slot || '',
+        templateUsageEn: naturalTemplate.usageEn || '',
+        templateUsageAr: naturalTemplate.usageAr || '',
+        templateRule: naturalTemplate.rule || naturalTemplate.name || '',
+        examples: naturalTemplate.examples || [],
         savedAt: new Date().toISOString()
       }));
       saved++;
@@ -1428,12 +1678,13 @@
     const wordItems = isTemplates ? state.savedWords.filter(x => x.kind === 'template') : (isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind === 'word'));
     const arr = (isWords || isPhrases || isTemplates) ? wordItems : state.savedLines;
     const countLabel = isTemplates ? 'templates' : (isPhrases ? 'phrases' : (isWords ? 'words' : 'lines'));
-    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small></div>`;
+    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small>${isTemplates ? '<div class="saved-actions"><button class="small-btn" data-refresh-all-template-examples>Improve all examples</button></div>' : ''}</div>`;
     if (!arr.length) { body.innerHTML = header + '<p>No saved items yet.</p>'; openModal('savedModal'); return; }
     body.innerHTML = header + arr.map((x, i) => {
       if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
-        const examples = Array.isArray(x.examples) && x.examples.length ? `<div class="saved-section"><b>Examples</b>${x.examples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        const displayExamples = x.kind === 'template' ? sanitizeTemplateExamples(x.examples || [], x.word, x.contextEn || '') : (Array.isArray(x.examples) ? x.examples.slice(0,3) : []);
+        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples</b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
@@ -1443,7 +1694,7 @@
             ${usage}
             ${x.contextEn ? `<div class="saved-section"><b>Movie context</b><p dir="ltr">${escapeHtml(x.contextEn)}</p>${x.contextAr ? `<p dir="rtl" class="ar">${escapeHtml(x.contextAr)}</p>` : ''}</div>` : ''}
             ${examples}
-            <div class="saved-actions"><button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
+            <div class="saved-actions">${x.kind === 'template' ? `<button class="small-btn" data-refresh-template-examples="${originalIndex}">Improve examples</button>` : ''}<button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
           </div>
         </details>`;
       }
@@ -1914,6 +2165,8 @@
       return;
     }
     const savePhrase = e.target.closest('[data-save-phrase]'); if (savePhrase) { savePhraseFromSubtitle(savePhrase.dataset.savePhrase, Number(savePhrase.dataset.index)); return; }
+    const refreshOneTemplate = e.target.closest('[data-refresh-template-examples]'); if (refreshOneTemplate) { refreshTemplateExamplesByIndex(refreshOneTemplate.dataset.refreshTemplateExamples); return; }
+    const refreshAllTemplates = e.target.closest('[data-refresh-all-template-examples]'); if (refreshAllTemplates) { refreshAllTemplateExamples(); return; }
     const ppWord = e.target.closest('[data-pp-word]'); if (ppWord) { openPlayPhrase(ppWord.dataset.ppWord); return; }
     const ppLine = e.target.closest('[data-pp-line]'); if (ppLine) { const item = state.savedLines[Number(ppLine.dataset.ppLine)]; if (item) openPlayPhrase(cleanLine(item.en)); return; }
     const reviewOne = e.target.closest('[data-review-one]'); if (reviewOne) { const [type, index] = reviewOne.dataset.reviewOne.split(':'); showSingleReviewCard(type, index); return; }
