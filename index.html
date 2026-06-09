@@ -157,11 +157,12 @@
   <div id="laraModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head"><b>Lara Translate settings</b><button data-close-modal="laraModal">×</button></div>
-      <p class="settings-hint">Use Lara for natural subtitle-line translation. You can either save credentials here for this device or set Vercel environment variables: <b>LARA_ACCESS_KEY_ID</b> and <b>LARA_ACCESS_KEY_SECRET</b>.</p>
+      <p class="settings-hint">Use Lara for natural subtitle-line translation. Settings are saved locally and synced to Supabase so they can be restored on your other devices. For better security, Vercel environment variables are still recommended: <b>LARA_ACCESS_KEY_ID</b> and <b>LARA_ACCESS_KEY_SECRET</b>.</p>
       <input id="laraKeyIdInput" class="text-input" dir="ltr" placeholder="Lara Access Key ID" />
       <input id="laraSecretInput" class="text-input" dir="ltr" type="password" placeholder="Lara Access Key Secret" />
       <div class="settings-actions">
-        <button id="saveLaraSettingsBtn" class="full-btn">Save Lara</button>
+        <button id="saveLaraSettingsBtn" class="full-btn">Save Lara to cloud</button>
+        <button id="testLaraSettingsBtn" class="small-btn">Test Lara</button>
         <button id="clearLaraSettingsBtn" class="small-btn danger">Clear</button>
       </div>
       <p id="laraSettingsStatus" class="menu-status"></p>

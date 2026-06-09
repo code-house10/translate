@@ -442,7 +442,7 @@
   }
 
   function normalizeLibraryState() {
-    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
+    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
     state.savedLines = state.savedLines.map(normalizeSavedLine).filter(x => x.en || x.ar);
   }
 
@@ -1045,11 +1045,78 @@
     return data.translatedText || '';
   }
 
+  const LARA_SETTINGS_CLOUD_WORD = '__lara_settings__';
+
   function getLaraConfig() {
     return {
-      accessKeyId: localStorage.getItem('jm_lara_access_key_id') || '',
-      accessKeySecret: localStorage.getItem('jm_lara_access_key_secret') || ''
+      accessKeyId: String(localStorage.getItem('jm_lara_access_key_id') || '').trim(),
+      accessKeySecret: String(localStorage.getItem('jm_lara_access_key_secret') || '').trim()
     };
+  }
+
+  function saveLaraConfigToLocal() {
+    const accessKeyId = String($('laraKeyIdInput')?.value || '').trim();
+    const accessKeySecret = String($('laraSecretInput')?.value || '').trim();
+    if (accessKeyId) localStorage.setItem('jm_lara_access_key_id', accessKeyId); else localStorage.removeItem('jm_lara_access_key_id');
+    if (accessKeySecret) localStorage.setItem('jm_lara_access_key_secret', accessKeySecret); else localStorage.removeItem('jm_lara_access_key_secret');
+    return { accessKeyId, accessKeySecret };
+  }
+
+  function isLaraSettingsCloudItem(item) {
+    const key = String(item?.key || '').toLowerCase();
+    const word = String(item?.word || '').toLowerCase();
+    return key === 'setting:lara' || word === LARA_SETTINGS_CLOUD_WORD;
+  }
+
+  function makeLaraSettingsCloudItem() {
+    const cfg = getLaraConfig();
+    if (!cfg.accessKeyId || !cfg.accessKeySecret) return null;
+    const now = new Date().toISOString();
+    return {
+      kind: 'setting',
+      hidden: true,
+      key: 'setting:lara',
+      word: LARA_SETTINGS_CLOUD_WORD,
+      accessKeyId: cfg.accessKeyId,
+      accessKeySecret: cfg.accessKeySecret,
+      savedAt: now,
+      updatedAt: now
+    };
+  }
+
+  function applyLaraSettingsFromCloud(remoteWords = []) {
+    const item = (remoteWords || []).find(isLaraSettingsCloudItem);
+    if (!item) return false;
+    const accessKeyId = String(item.accessKeyId || '').trim();
+    const accessKeySecret = String(item.accessKeySecret || '').trim();
+    if (!accessKeyId || !accessKeySecret) return false;
+    localStorage.setItem('jm_lara_access_key_id', accessKeyId);
+    localStorage.setItem('jm_lara_access_key_secret', accessKeySecret);
+    return true;
+  }
+
+  function savedWordsForCloud() {
+    const visibleWords = state.savedWords
+      .filter(x => !isLaraSettingsCloudItem(x))
+      .map(normalizeSavedWord)
+      .filter(x => x.word && !isLaraSettingsCloudItem(x));
+    const laraSettings = makeLaraSettingsCloudItem();
+    return laraSettings ? [...visibleWords, laraSettings] : visibleWords;
+  }
+
+  async function saveLaraSettingsToCloud({ silent = false } = {}) {
+    const cfg = getLaraConfig();
+    if (!cfg.accessKeyId || !cfg.accessKeySecret) {
+      if (!silent) toast('Enter Lara keys first');
+      return false;
+    }
+    return await syncSavedItemsToCloud({ silent, reason: 'lara-settings' });
+  }
+
+  function laraApiErrorMessage(status, data) {
+    if (status === 404) return 'Lara API proxy is missing. Upload the full Vercel project folder, not the HTML file only.';
+    if (status === 401 || status === 403) return 'Lara rejected the credentials. Check Access Key ID and Secret.';
+    return data?.error || data?.details || `Lara failed (${status})`;
   }
 
   function getLaraPayload(extra = {}) {
@@ -1086,7 +1153,7 @@
       body: JSON.stringify(getLaraPayload({ text }))
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Lara failed');
+    if (!res.ok) throw new Error(laraApiErrorMessage(res.status, data));
     return data.translatedText || '';
   }
 
@@ -1097,7 +1164,7 @@
       body: JSON.stringify(getLaraPayload({ items }))
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Lara failed');
+    if (!res.ok) throw new Error(laraApiErrorMessage(res.status, data));
     return data.translated || [];
   }
 
@@ -1525,7 +1592,7 @@
       const payload = {
         user_code: CLOUD_CONFIG.userCode,
         saved_phrases: state.savedLines.map(normalizeSavedLine),
-        saved_words: state.savedWords.map(normalizeSavedWord),
+        saved_words: savedWordsForCloud(),
         updated_at: new Date().toISOString()
       };
       const { error } = await sb.from('user_library').upsert(payload, { onConflict: 'user_code' });
@@ -1562,14 +1629,17 @@
       if (error) throw error;
       if (data) {
         const remoteLines = Array.isArray(data.saved_phrases) ? data.saved_phrases : [];
-        const remoteWords = Array.isArray(data.saved_words) ? data.saved_words : [];
+        const remoteWordsRaw = Array.isArray(data.saved_words) ? data.saved_words : [];
+        const restoredLara = applyLaraSettingsFromCloud(remoteWordsRaw);
+        const remoteWords = remoteWordsRaw.filter(x => !isLaraSettingsCloudItem(x));
         if (merge) {
           state.savedLines = mergeByKey(state.savedLines, remoteLines, savedLineMergeKey, normalizeSavedLine);
-          state.savedWords = mergeByKey(state.savedWords, remoteWords, savedWordMergeKey, normalizeSavedWord).filter(x => x.word);
+          state.savedWords = mergeByKey(state.savedWords, remoteWords, savedWordMergeKey, normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
         } else {
           state.savedLines = remoteLines.map(normalizeSavedLine);
-          state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word);
+          state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
         }
+        if (restoredLara && $('laraSettingsStatus')) $('laraSettingsStatus').textContent = 'Lara settings restored from cloud.';
         writeJSON('jm_saved_lines', state.savedLines);
         writeJSON('jm_saved_words', state.savedWords);
         saveState();
@@ -1708,7 +1778,7 @@
     const lesson = state.cloudLessons[Number(i)]; if (!lesson) return;
     state.subtitles = Array.isArray(lesson.dialogue) ? lesson.dialogue.filter(x => !shouldIgnoreSubtitle(x.en)).map(x => ({...x, time: x.time || formatTime(x.startTime)})) : [];
     state.savedLines = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases.map(normalizeSavedLine) : state.savedLines;
-    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words.map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
+    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words.filter(x => !isLaraSettingsCloudItem(x)).map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
     state.offset = Number(lesson.sync || 0); state.activeIndex = -1; state.lastIndex = -1; state.listCenter = 0; state.videoUrl = lesson.video_url || '';
     saveState(); scheduleCloudLibrarySync(); updateControls(); renderList(0); closeModal('savedModal');
     if (state.videoUrl) await loadUrl(state.videoUrl);
@@ -1900,15 +1970,43 @@
   $('copyLineBtn').onclick = () => copyLine(currentSubtitleIndex());
   $('translateLineBtn').onclick = () => translateLine(currentSubtitleIndex());
   $('playPhraseLineBtn').onclick = () => { const item = state.subtitles[currentSubtitleIndex()]; if (item) openPlayPhrase(cleanLine(item.en)); };
-  if ($('saveLaraSettingsBtn')) $('saveLaraSettingsBtn').onclick = () => { localStorage.setItem('jm_lara_access_key_id', $('laraKeyIdInput').value.trim()); localStorage.setItem('jm_lara_access_key_secret', $('laraSecretInput').value.trim()); $('laraSettingsStatus').textContent = 'Lara settings saved on this device.'; toast('Lara saved'); };
-  if ($('clearLaraSettingsBtn')) $('clearLaraSettingsBtn').onclick = () => { localStorage.removeItem('jm_lara_access_key_id'); localStorage.removeItem('jm_lara_access_key_secret'); $('laraKeyIdInput').value = ''; $('laraSecretInput').value = ''; $('laraSettingsStatus').textContent = 'Local Lara settings cleared.'; toast('Lara cleared'); };
+  if ($('saveLaraSettingsBtn')) $('saveLaraSettingsBtn').onclick = async () => {
+    const cfg = saveLaraConfigToLocal();
+    if (!cfg.accessKeyId || !cfg.accessKeySecret) { $('laraSettingsStatus').textContent = 'Please enter both Lara Access Key ID and Secret.'; return toast('Missing Lara keys'); }
+    $('laraSettingsStatus').textContent = 'Saving Lara settings locally and to Supabase...';
+    const ok = await saveLaraSettingsToCloud({ silent: true });
+    $('laraSettingsStatus').textContent = ok ? 'Lara settings saved locally and in Supabase.' : 'Lara settings saved locally, but cloud sync failed. Try Menu → Cloud library → Sync saved now.';
+    toast(ok ? 'Lara saved to cloud' : 'Lara saved locally');
+  };
+  if ($('testLaraSettingsBtn')) $('testLaraSettingsBtn').onclick = async () => {
+    const cfg = saveLaraConfigToLocal();
+    if (!cfg.accessKeyId || !cfg.accessKeySecret) { $('laraSettingsStatus').textContent = 'Please enter both Lara Access Key ID and Secret first.'; return toast('Missing Lara keys'); }
+    $('laraSettingsStatus').textContent = 'Testing Lara translation...';
+    try {
+      const sample = await translateLara('I have got some time.');
+      await saveLaraSettingsToCloud({ silent: true });
+      $('laraSettingsStatus').textContent = `Lara works. Sample: ${sample}`;
+      toast('Lara test passed');
+    } catch (e) {
+      $('laraSettingsStatus').textContent = e.message || String(e);
+      toast('Lara test failed');
+    }
+  };
+  if ($('clearLaraSettingsBtn')) $('clearLaraSettingsBtn').onclick = async () => {
+    localStorage.removeItem('jm_lara_access_key_id'); localStorage.removeItem('jm_lara_access_key_secret');
+    $('laraKeyIdInput').value = ''; $('laraSecretInput').value = '';
+    $('laraSettingsStatus').textContent = 'Lara settings cleared locally. Syncing removal to Supabase...';
+    const ok = await syncSavedItemsToCloud({ silent: true, reason: 'lara-clear' });
+    $('laraSettingsStatus').textContent = ok ? 'Lara settings cleared locally and from Supabase.' : 'Local Lara settings cleared, but cloud sync failed.';
+    toast('Lara cleared');
+  };
 
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
   el.movie.addEventListener('waiting', () => { if (state.playerType === 'html5') setStatus('Buffering video...'); });
   el.movie.addEventListener('stalled', () => { if (state.playerType === 'html5') setStatus('Video stalled. Use Menu → Recover video if it does not resume.'); });
   el.movie.addEventListener('playing', () => { if (state.playerType === 'html5' && !state.isSeeking) setStatus('Playing'); });
 
-  state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word);
+  state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
   state.savedLines = state.savedLines.map(normalizeSavedLine);
   loadSavedItemsFromCloud({ silent: true, merge: true }).then(ok => { if (ok) setStatus(`Saved items ready from cloud • ${state.savedWords.length + state.savedLines.length} cards`); });
   const savedSubs = readJSON('jm_subtitles', []);

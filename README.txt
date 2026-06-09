@@ -75,3 +75,9 @@ Required Supabase tables/columns:
 - public.lessons: user_code, title, video_url, video_type, sync, dialogue, saved_phrases, saved_words, subtitle_text, created_at
 
 If sync fails, make sure these tables exist and anon policies allow access for your personal app.
+
+Lara settings cloud sync update:
+- Use Menu -> Lara settings -> Save Lara to cloud.
+- The app stores Lara Access Key ID and Secret locally and inside Supabase user_library.saved_words as a hidden settings record.
+- Use Test Lara to verify the Vercel /api/lara-translate proxy is working.
+- If Test Lara says the API proxy is missing, upload the full project folder to Vercel, not the standalone HTML only.

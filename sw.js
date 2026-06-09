@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jungle-movie-lite-shell-v3-templates';
+const CACHE_NAME = 'jungle-movie-lite-shell-v4-lara-cloud-settings';
 const APP_SHELL = [
   './',
   './index.html',
