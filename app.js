@@ -607,6 +607,42 @@
     return out;
   }
 
+
+  async function fetchTemplateExamplesFromChatLlm(template, contextEn = '') {
+    if (!template?.pattern) return [];
+    const cfg = getChatLlmConfig();
+    try {
+      const res = await fetch('/api/chats-llm-template-examples', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          pattern: template.pattern,
+          contextEn: contextEn || template.source || '',
+          slot: template.slot || '',
+          usageEn: template.usageEn || '',
+          usageAr: template.usageAr || '',
+          apiKey: cfg.apiKey || '',
+          model: cfg.model || ''
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(chatLlmErrorMessage(res.status, data));
+      const examples = Array.isArray(data.examples) ? data.examples : [];
+      return sanitizeTemplateExamples(examples.map(ex => ({
+        en: cleanLine(ex.en || ''),
+        ar: cleanLine(ex.ar || ''),
+        source: 'ai',
+        slot: cleanLine(ex.slot || '')
+      })), template.pattern, contextEn || template.source || '');
+    } catch (e) {
+      console.warn('Chats-LLM template examples failed:', e);
+      if (String(e.message || '').includes('rejected') || String(e.message || '').includes('API key') || String(e.message || '').includes('missing')) {
+        setStatus(e.message || 'AI examples need setup.');
+      }
+      return [];
+    }
+  }
+
   async function translateTemplateExamplesWithMyMemory(examples) {
     const list = sanitizeTemplateExamples(examples || []);
     if (!list.length) return [];
@@ -665,11 +701,13 @@
     if (!template?.pattern) return [];
 
     // Priority:
-    // 1) Real matching lines already present in the uploaded subtitle file.
-    // 2) MyMemory translation-memory matches, only if they are complete English sentences and match the same template.
-    // 3) A small human-curated daily-life pack for the known template, translated with MyMemory.
+    // 1) Chats-LLM creates fresh, complete daily-life examples by filling the [slot] in the template.
+    // 2) Real matching lines already present in the uploaded subtitle file.
+    // 3) MyMemory translation-memory matches if they are complete English sentences and match the same template.
+    // 4) A small human-curated daily-life pack for the known template, translated with MyMemory.
     let candidates = [];
-    candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
+    candidates = candidates.concat(await fetchTemplateExamplesFromChatLlm(template, contextEn));
+    if (candidates.length < 3) candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
     if (candidates.length < 3) candidates = candidates.concat(await fetchTemplateExamplesFromMyMemory(template, contextEn));
     if (candidates.length < 3) candidates = candidates.concat(makeDailyTemplateExamples(template.pattern, contextEn || template.source || ''));
 
@@ -697,7 +735,7 @@
   async function refreshTemplateExamplesByIndex(index) {
     const item = state.savedWords[Number(index)];
     if (!item || item.kind !== 'template') return toast('Template not found');
-    setStatus('Finding natural examples and translating them with MyMemory...');
+    setStatus('Generating natural daily examples with AI...');
     const template = {
       pattern: item.word,
       source: item.contextEn || '',
@@ -712,8 +750,8 @@
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast('Examples updated with MyMemory');
-    setStatus('Template examples updated with MyMemory and synced');
+    toast('Examples updated with AI');
+    setStatus('Template examples updated with AI and synced');
   }
 
   async function refreshAllTemplateExamples() {
@@ -721,7 +759,7 @@
       .map((item, index) => ({ item, index }))
       .filter(x => x.item && x.item.kind === 'template');
     if (!templateIndexes.length) return toast('No saved templates yet');
-    setStatus('Improving templates and translating examples with MyMemory...');
+    setStatus('Improving templates with AI examples...');
     let count = 0;
     for (const { item, index } of templateIndexes) {
       const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
@@ -734,8 +772,8 @@
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast(`${count} template examples improved with MyMemory`);
-    setStatus('Natural MyMemory examples saved to cloud sync queue');
+    toast(`${count} template examples improved with AI`);
+    setStatus('AI template examples saved to cloud sync queue');
   }
 
   const CLOUD_CONFIG = {
@@ -844,7 +882,7 @@
   }
 
   function normalizeLibraryState() {
-    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
+    state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
     state.savedLines = state.savedLines.map(normalizeSavedLine).filter(x => x.en || x.ar);
   }
 
@@ -1504,13 +1542,92 @@
     return true;
   }
 
+
+  const CHAT_LLM_SETTINGS_CLOUD_WORD = '__chats_llm_settings__';
+
+  function getChatLlmConfig() {
+    return {
+      apiKey: String(localStorage.getItem('jm_chats_llm_api_key') || '').trim(),
+      model: String(localStorage.getItem('jm_chats_llm_model') || '').trim()
+    };
+  }
+
+  function saveChatLlmConfigToLocal() {
+    const apiKey = String($('chatLlmKeyInput')?.value || '').trim();
+    const model = String($('chatLlmModelInput')?.value || '').trim();
+    if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey); else localStorage.removeItem('jm_chats_llm_api_key');
+    if (model) localStorage.setItem('jm_chats_llm_model', model); else localStorage.removeItem('jm_chats_llm_model');
+    return { apiKey, model };
+  }
+
+  function isChatLlmSettingsCloudItem(item) {
+    const key = String(item?.key || '').toLowerCase();
+    const word = String(item?.word || '').toLowerCase();
+    return key === 'setting:chats-llm' || word === CHAT_LLM_SETTINGS_CLOUD_WORD;
+  }
+
+  function isHiddenCloudSettingsItem(item) {
+    return isLaraSettingsCloudItem(item) || isChatLlmSettingsCloudItem(item);
+  }
+
+  function makeChatLlmSettingsCloudItem() {
+    const cfg = getChatLlmConfig();
+    if (!cfg.apiKey && !cfg.model) return null;
+    const now = new Date().toISOString();
+    return {
+      kind: 'setting',
+      hidden: true,
+      key: 'setting:chats-llm',
+      word: CHAT_LLM_SETTINGS_CLOUD_WORD,
+      apiKey: cfg.apiKey,
+      model: cfg.model,
+      savedAt: now,
+      updatedAt: now
+    };
+  }
+
+  function applyChatLlmSettingsFromCloud(remoteWords = []) {
+    const item = (remoteWords || []).find(isChatLlmSettingsCloudItem);
+    if (!item) return false;
+    const apiKey = String(item.apiKey || '').trim();
+    const model = String(item.model || '').trim();
+    if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey);
+    if (model) localStorage.setItem('jm_chats_llm_model', model);
+    return Boolean(apiKey || model);
+  }
+
+  async function saveChatLlmSettingsToCloud({ silent = false } = {}) {
+    const cfg = getChatLlmConfig();
+    if (!cfg.apiKey) {
+      if (!silent) toast('Enter Chats-LLM key first');
+      return false;
+    }
+    return await syncSavedItemsToCloud({ silent, reason: 'chats-llm-settings' });
+  }
+
+  function openChatLlmSettings(message = '') {
+    openMenu(false);
+    const cfg = getChatLlmConfig();
+    if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = cfg.apiKey;
+    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model;
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Add the API key once, or set CHATS_LLM_API_KEY in Vercel. Leave model empty for auto selection.';
+    openModal('aiTemplateModal');
+  }
+
+  function chatLlmErrorMessage(status, data) {
+    if (status === 404) return 'AI examples API proxy is missing. Upload the full Vercel project folder, not the HTML file only.';
+    if (status === 401 || status === 403) return 'Chats-LLM rejected the API key. Check the key or Vercel environment variable.';
+    if (status === 429) return 'Chats-LLM rate limit exceeded. Try again later or use another model/plan.';
+    return data?.error || data?.details || `Chats-LLM failed (${status})`;
+  }
+
   function savedWordsForCloud() {
     const visibleWords = state.savedWords
-      .filter(x => !isLaraSettingsCloudItem(x))
+      .filter(x => !isHiddenCloudSettingsItem(x))
       .map(normalizeSavedWord)
-      .filter(x => x.word && !isLaraSettingsCloudItem(x));
-    const laraSettings = makeLaraSettingsCloudItem();
-    return laraSettings ? [...visibleWords, laraSettings] : visibleWords;
+      .filter(x => x.word && !isHiddenCloudSettingsItem(x));
+    const hiddenSettings = [makeLaraSettingsCloudItem(), makeChatLlmSettingsCloudItem()].filter(Boolean);
+    return [...visibleWords, ...hiddenSettings];
   }
 
   async function saveLaraSettingsToCloud({ silent = false } = {}) {
@@ -1845,7 +1962,7 @@
       if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
         const displayExamples = x.kind === 'template' ? sanitizeTemplateExamples(x.examples || [], x.word, x.contextEn || '') : (Array.isArray(x.examples) ? x.examples.slice(0,3) : []);
-        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">MyMemory / subtitle</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">AI / subtitle / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
@@ -2043,15 +2160,17 @@
         const remoteLines = Array.isArray(data.saved_phrases) ? data.saved_phrases : [];
         const remoteWordsRaw = Array.isArray(data.saved_words) ? data.saved_words : [];
         const restoredLara = applyLaraSettingsFromCloud(remoteWordsRaw);
-        const remoteWords = remoteWordsRaw.filter(x => !isLaraSettingsCloudItem(x));
+        const restoredChatLlm = applyChatLlmSettingsFromCloud(remoteWordsRaw);
+        const remoteWords = remoteWordsRaw.filter(x => !isHiddenCloudSettingsItem(x));
         if (merge) {
           state.savedLines = mergeByKey(state.savedLines, remoteLines, savedLineMergeKey, normalizeSavedLine);
-          state.savedWords = mergeByKey(state.savedWords, remoteWords, savedWordMergeKey, normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
+          state.savedWords = mergeByKey(state.savedWords, remoteWords, savedWordMergeKey, normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
         } else {
           state.savedLines = remoteLines.map(normalizeSavedLine);
-          state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
+          state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
         }
         if (restoredLara && $('laraSettingsStatus')) $('laraSettingsStatus').textContent = 'Lara settings restored from cloud.';
+        if (restoredChatLlm && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'AI examples settings restored from cloud.';
         writeJSON('jm_saved_lines', state.savedLines);
         writeJSON('jm_saved_words', state.savedWords);
         saveState();
@@ -2190,7 +2309,7 @@
     const lesson = state.cloudLessons[Number(i)]; if (!lesson) return;
     state.subtitles = Array.isArray(lesson.dialogue) ? lesson.dialogue.filter(x => !shouldIgnoreSubtitle(x.en)).map(x => ({...x, time: x.time || formatTime(x.startTime)})) : [];
     state.savedLines = Array.isArray(lesson.saved_phrases) ? lesson.saved_phrases.map(normalizeSavedLine) : state.savedLines;
-    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words.filter(x => !isLaraSettingsCloudItem(x)).map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
+    state.savedWords = Array.isArray(lesson.saved_words) ? lesson.saved_words.filter(x => !isHiddenCloudSettingsItem(x)).map(normalizeSavedWord).filter(x => x.word) : state.savedWords;
     state.offset = Number(lesson.sync || 0); state.activeIndex = -1; state.lastIndex = -1; state.listCenter = 0; state.videoUrl = lesson.video_url || '';
     saveState(); scheduleCloudLibrarySync(); updateControls(); renderList(0); closeModal('savedModal');
     if (state.videoUrl) await loadUrl(state.videoUrl);
@@ -2352,6 +2471,7 @@
   $('menuAzure').onclick = translateAllAzure;
   $('menuLaraAll').onclick = translateAllLara;
   $('menuLaraSettings').onclick = () => openLaraSettings();
+  if ($('menuAiTemplateSettings')) $('menuAiTemplateSettings').onclick = () => openChatLlmSettings();
   $('menuSavedWords').onclick = () => { openMenu(false); showSaved('words'); };
   if ($('menuSavedPhrases')) $('menuSavedPhrases').onclick = () => { openMenu(false); showSaved('phrases'); };
   if ($('menuSavedTemplates')) $('menuSavedTemplates').onclick = () => { openMenu(false); showSaved('templates'); };
@@ -2415,12 +2535,48 @@
     toast('Lara cleared');
   };
 
+  if ($('saveChatLlmSettingsBtn')) $('saveChatLlmSettingsBtn').onclick = async () => {
+    const cfg = saveChatLlmConfigToLocal();
+    if (!cfg.apiKey) { $('chatLlmSettingsStatus').textContent = 'Please enter the Chats-LLM API key first.'; return toast('Missing AI key'); }
+    $('chatLlmSettingsStatus').textContent = 'Saving AI examples settings locally and to Supabase...';
+    const ok = await saveChatLlmSettingsToCloud({ silent: true });
+    $('chatLlmSettingsStatus').textContent = ok ? 'AI examples key saved locally and in Supabase.' : 'AI examples key saved locally, but cloud sync failed.';
+    toast(ok ? 'AI key saved to cloud' : 'AI key saved locally');
+  };
+  if ($('testChatLlmSettingsBtn')) $('testChatLlmSettingsBtn').onclick = async () => {
+    const cfg = saveChatLlmConfigToLocal();
+    $('chatLlmSettingsStatus').textContent = cfg.apiKey ? 'Testing AI template examples...' : 'Testing AI template examples using Vercel env key if available...';
+    try {
+      const sampleTemplate = {
+        pattern: 'How many times have I told you not to [do something]?',
+        source: 'How many times have I told you not to wake me up like that?',
+        slot: 'wake me up like that',
+        usageEn: 'Use it when someone keeps doing something you warned them not to do.'
+      };
+      const examples = await fetchTemplateExamplesFromChatLlm(sampleTemplate, sampleTemplate.source);
+      await saveChatLlmSettingsToCloud({ silent: true });
+      $('chatLlmSettingsStatus').textContent = examples.length ? `AI works. Sample: ${examples[0].en} — ${examples[0].ar}` : 'AI responded, but no valid example was returned.';
+      toast(examples.length ? 'AI examples test passed' : 'No valid AI examples');
+    } catch (e) {
+      $('chatLlmSettingsStatus').textContent = e.message || String(e);
+      toast('AI examples test failed');
+    }
+  };
+  if ($('clearChatLlmSettingsBtn')) $('clearChatLlmSettingsBtn').onclick = async () => {
+    localStorage.removeItem('jm_chats_llm_api_key'); localStorage.removeItem('jm_chats_llm_model');
+    $('chatLlmKeyInput').value = ''; $('chatLlmModelInput').value = '';
+    $('chatLlmSettingsStatus').textContent = 'AI examples settings cleared locally. Syncing removal to Supabase...';
+    const ok = await syncSavedItemsToCloud({ silent: true, reason: 'chats-llm-clear' });
+    $('chatLlmSettingsStatus').textContent = ok ? 'AI examples settings cleared locally and from Supabase.' : 'Local AI settings cleared, but cloud sync failed.';
+    toast('AI key cleared');
+  };
+
   el.movie.addEventListener('loadedmetadata', () => { el.movie.playbackRate = state.speed; });
   el.movie.addEventListener('waiting', () => { if (state.playerType === 'html5') setStatus('Buffering video...'); });
   el.movie.addEventListener('stalled', () => { if (state.playerType === 'html5') setStatus('Video stalled. Use Menu → Recover video if it does not resume.'); });
   el.movie.addEventListener('playing', () => { if (state.playerType === 'html5' && !state.isSeeking) setStatus('Playing'); });
 
-  state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word && !isLaraSettingsCloudItem(x));
+  state.savedWords = state.savedWords.map(normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
   state.savedLines = state.savedLines.map(normalizeSavedLine);
   loadSavedItemsFromCloud({ silent: true, merge: true }).then(ok => { if (ok) setStatus(`Saved items ready from cloud • ${state.savedWords.length + state.savedLines.length} cards`); });
   const savedSubs = readJSON('jm_subtitles', []);
