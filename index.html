@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>Jungle Movie Lite</title>
-  <link rel="stylesheet" href="./style.css?v=puter-ai-visible-v2" />
+  <link rel="stylesheet" href="./style.css?v=lara-quota-safe-v1" />
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -165,8 +165,10 @@
         <button id="saveLaraSettingsBtn" class="full-btn">Save Lara to cloud</button>
         <button id="testLaraSettingsBtn" class="small-btn">Test Lara</button>
         <button id="clearLaraSettingsBtn" class="small-btn danger">Clear</button>
+        <button id="clearLaraQuotaPauseBtn" class="small-btn">Clear Lara pause</button>
       </div>
       <p id="laraSettingsStatus" class="menu-status"></p>
+      <p class="settings-hint">If Lara returns a quota error, the app temporarily pauses Lara and uses MyMemory fallback so translation does not stop. Test Lara now shows the real Lara response without fallback.</p>
     </div>
   </div>
 
@@ -194,10 +196,10 @@
 
   <div id="toast" class="toast hidden"></div>
   <script src="https://js.puter.com/v2/"></script>
-  <script src="./app.js?v=puter-ai-visible-v2"></script>
+  <script src="./app.js?v=lara-quota-safe-v1"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=puter-ai-visible-v2').then(r => r.update()).catch(() => {}));
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js?v=lara-quota-safe-v1').then(r => r.update()).catch(() => {}));
     }
   </script>
 </body>

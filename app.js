@@ -2195,6 +2195,39 @@ Good output example:
   }
 
   const LARA_SETTINGS_CLOUD_WORD = '__lara_settings__';
+  const LARA_PAUSE_UNTIL_KEY = 'jm_lara_pause_until';
+  const LARA_LAST_ERROR_KEY = 'jm_lara_last_error';
+
+  function laraPauseRemainingMs() {
+    const until = Number(localStorage.getItem(LARA_PAUSE_UNTIL_KEY) || 0);
+    return Math.max(0, until - Date.now());
+  }
+
+  function isLaraTemporarilyPaused() {
+    return laraPauseRemainingMs() > 0;
+  }
+
+  function pauseLaraAfterQuota(minutes = 30, message = '') {
+    const until = Date.now() + (Number(minutes) || 30) * 60 * 1000;
+    localStorage.setItem(LARA_PAUSE_UNTIL_KEY, String(until));
+    if (message) localStorage.setItem(LARA_LAST_ERROR_KEY, String(message).slice(0, 600));
+  }
+
+  function clearLaraPause() {
+    localStorage.removeItem(LARA_PAUSE_UNTIL_KEY);
+    localStorage.removeItem(LARA_LAST_ERROR_KEY);
+  }
+
+  function isLaraQuotaLikeMessage(msg) {
+    return /api_translation_chars|quota|exceeded|limit/i.test(String(msg || ''));
+  }
+
+  function laraPauseText() {
+    const ms = laraPauseRemainingMs();
+    if (!ms) return '';
+    const mins = Math.ceil(ms / 60000);
+    return `Lara is paused for about ${mins} min after a quota response. MyMemory fallback is active.`;
+  }
 
   function getLaraConfig() {
     return {
@@ -2348,12 +2381,13 @@ Good output example:
 
   function laraApiErrorMessage(status, data) {
     if (status === 404) return 'Lara API proxy is missing. Upload the full Vercel project folder, not the HTML file only.';
-    if (status === 401 || status === 403) return 'Lara rejected the credentials. Check Access Key ID and Secret.';
+    const source = data?.credentialSource ? ` Source: ${data.credentialSource}.` : '';
+    if (status === 401 || status === 403) return `Lara rejected the credentials.${source} Check Access Key ID and Secret.`;
     const raw = data?.error || data?.details || data?.message || '';
-    if (/api_translation_chars|quota|exceeded/i.test(String(raw))) {
-      return 'Lara says the API translation quota is exceeded for these credentials. I will use MyMemory fallback for this request. Check that the saved Lara keys belong to the same API plan you are viewing.';
+    if (isLaraQuotaLikeMessage(raw)) {
+      return `Lara API returned a quota/limit response for the credentials being used.${source} The app will use MyMemory fallback. If your dashboard still shows characters available, the API credentials may belong to a different Lara API plan/account, or Vercel may still have old environment variables.`;
     }
-    return raw || `Lara failed (${status})`;
+    return (raw ? `${raw}${source}` : `Lara failed (${status})${source}`);
   }
 
   function getLaraPayload(extra = {}) {
@@ -2379,22 +2413,42 @@ Good output example:
     const cfg = getLaraConfig();
     if ($('laraKeyIdInput')) $('laraKeyIdInput').value = cfg.accessKeyId;
     if ($('laraSecretInput')) $('laraSecretInput').value = cfg.accessKeySecret;
-    if ($('laraSettingsStatus')) $('laraSettingsStatus').textContent = message || 'Add credentials here, or use Vercel environment variables.';
+    if ($('laraSettingsStatus')) {
+      const pause = laraPauseText();
+      const last = localStorage.getItem(LARA_LAST_ERROR_KEY) || '';
+      $('laraSettingsStatus').textContent = message || pause || (last ? `Last Lara issue: ${last}` : 'Add credentials here, or use Vercel environment variables.');
+    }
     openModal('laraModal');
   }
 
-  async function translateLara(text) {
+  async function requestLaraApi(extra = {}) {
     const res = await fetch('/api/lara-translate', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(getLaraPayload({ text }))
+      body: JSON.stringify(getLaraPayload(extra))
     });
     const data = await res.json().catch(() => ({}));
+    return { res, data };
+  }
+
+  async function translateLaraPure(text) {
+    const { res, data } = await requestLaraApi({ text });
+    if (!res.ok) throw new Error(laraApiErrorMessage(res.status, data));
+    return { text: data.translatedText || '', credentialSource: data.credentialSource || '' };
+  }
+
+  async function translateLara(text) {
+    if (isLaraTemporarilyPaused()) {
+      setStatus(laraPauseText());
+      try { return await translateMyMemory(text); } catch {}
+    }
+    const { res, data } = await requestLaraApi({ text });
     if (!res.ok) {
       const msg = laraApiErrorMessage(res.status, data);
-      if (/quota is exceeded|MyMemory fallback/i.test(msg)) {
+      if (isLaraQuotaLikeMessage(msg)) {
         console.warn('Lara quota/plan issue. Falling back to MyMemory:', data);
-        setStatus('Lara quota issue. Using MyMemory fallback for this line.');
+        pauseLaraAfterQuota(30, msg);
+        setStatus('Lara returned a quota response. MyMemory fallback is active for now.');
         try { return await translateMyMemory(text); } catch {}
       }
       throw new Error(msg);
@@ -2403,17 +2457,17 @@ Good output example:
   }
 
   async function translateLaraItems(items) {
-    const res = await fetch('/api/lara-translate', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(getLaraPayload({ items }))
-    });
-    const data = await res.json().catch(() => ({}));
+    if (isLaraTemporarilyPaused()) {
+      setStatus(laraPauseText());
+      try { return await translateMyMemoryItems(items); } catch {}
+    }
+    const { res, data } = await requestLaraApi({ items });
     if (!res.ok) {
       const msg = laraApiErrorMessage(res.status, data);
-      if (/quota is exceeded|MyMemory fallback/i.test(msg)) {
+      if (isLaraQuotaLikeMessage(msg)) {
         console.warn('Lara quota/plan issue. Falling back to MyMemory batch:', data);
-        setStatus('Lara quota issue. Using MyMemory fallback for subtitle translation.');
+        pauseLaraAfterQuota(30, msg);
+        setStatus('Lara returned a quota response. MyMemory fallback is active for subtitle translation.');
         try { return await translateMyMemoryItems(items); } catch {}
       }
       throw new Error(msg);
@@ -3246,24 +3300,34 @@ Good output example:
   if ($('testLaraSettingsBtn')) $('testLaraSettingsBtn').onclick = async () => {
     const cfg = saveLaraConfigToLocal();
     if (!cfg.accessKeyId || !cfg.accessKeySecret) { $('laraSettingsStatus').textContent = 'Please enter both Lara Access Key ID and Secret first.'; return toast('Missing Lara keys'); }
-    $('laraSettingsStatus').textContent = 'Testing Lara translation...';
+    clearLaraPause();
+    $('laraSettingsStatus').textContent = 'Testing Lara directly, without MyMemory fallback...';
     try {
-      const sample = await translateLara('I have got some time.');
+      const sample = await translateLaraPure('I have got some time.');
       await saveLaraSettingsToCloud({ silent: true });
-      $('laraSettingsStatus').textContent = `Lara works. Sample: ${sample}`;
+      $('laraSettingsStatus').textContent = `Lara works directly. Source: ${sample.credentialSource || 'app credentials'}. Sample: ${sample.text}`;
       toast('Lara test passed');
     } catch (e) {
-      $('laraSettingsStatus').textContent = e.message || String(e);
-      toast('Lara test failed');
+      const msg = e.message || String(e);
+      if (isLaraQuotaLikeMessage(msg)) pauseLaraAfterQuota(30, msg);
+      $('laraSettingsStatus').textContent = `${msg} Normal subtitle translation will use MyMemory fallback instead of stopping.`;
+      toast('Lara direct test failed');
     }
   };
   if ($('clearLaraSettingsBtn')) $('clearLaraSettingsBtn').onclick = async () => {
     localStorage.removeItem('jm_lara_access_key_id'); localStorage.removeItem('jm_lara_access_key_secret');
+    clearLaraPause();
     $('laraKeyIdInput').value = ''; $('laraSecretInput').value = '';
     $('laraSettingsStatus').textContent = 'Lara settings cleared locally. Syncing removal to Supabase...';
     const ok = await syncSavedItemsToCloud({ silent: true, reason: 'lara-clear' });
     $('laraSettingsStatus').textContent = ok ? 'Lara settings cleared locally and from Supabase.' : 'Local Lara settings cleared, but cloud sync failed.';
     toast('Lara cleared');
+  };
+
+  if ($('clearLaraQuotaPauseBtn')) $('clearLaraQuotaPauseBtn').onclick = () => {
+    clearLaraPause();
+    $('laraSettingsStatus').textContent = 'Lara temporary pause cleared. Click Test Lara to check the real API response again.';
+    toast('Lara pause cleared');
   };
 
   if ($('saveChatLlmSettingsBtn')) $('saveChatLlmSettingsBtn').onclick = async () => {

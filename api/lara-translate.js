@@ -39,8 +39,10 @@ module.exports = async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const credentials = body.credentials || {};
+    const hasBodyCredentials = Boolean(String(credentials.accessKeyId || '').trim() && String(credentials.accessKeySecret || '').trim());
     const accessKeyId = String(credentials.accessKeyId || process.env.LARA_ACCESS_KEY_ID || '').trim();
     const accessKeySecret = String(credentials.accessKeySecret || process.env.LARA_ACCESS_KEY_SECRET || '').trim();
+    const credentialSource = hasBodyCredentials ? 'app_saved_credentials' : 'vercel_environment_variables';
     const lara = getTranslator(accessKeyId, accessKeySecret);
 
     const source = body.source || process.env.LARA_SOURCE_LANG || 'en';
@@ -69,6 +71,8 @@ module.exports = async function handler(req, res) {
       const result = await lara.translate(texts, source, target, options);
       const translations = Array.isArray(result.translation) ? result.translation : [result.translation];
       return res.status(200).json({
+        provider: 'lara',
+        credentialSource,
         translated: cleanItems.map((item, i) => ({ index: item.index, ar: translations[i] || '' }))
       });
     }
@@ -76,9 +80,21 @@ module.exports = async function handler(req, res) {
     const text = String(body.text || '').trim();
     if (!text) return res.status(400).json({ error: 'No text provided.' });
     const result = await lara.translate(text, source, target, options);
-    return res.status(200).json({ translatedText: Array.isArray(result.translation) ? (result.translation[0] || '') : (result.translation || '') });
+    return res.status(200).json({
+      provider: 'lara',
+      credentialSource,
+      translatedText: Array.isArray(result.translation) ? (result.translation[0] || '') : (result.translation || '')
+    });
   } catch (error) {
     console.error('Lara translate error:', error);
-    return res.status(error.statusCode || 500).json({ error: error.message || String(error), type: error.type || error.constructor?.name || 'LaraError', source: 'lara-sdk' });
+    const statusCode = error.statusCode || error.status || 500;
+    return res.status(statusCode).json({
+      error: error.message || String(error),
+      details: error.details || error.response?.data || null,
+      code: error.code || error.errorCode || null,
+      type: error.type || error.constructor?.name || 'LaraError',
+      source: 'lara-sdk',
+      hint: 'If this says api_translation_chars quota exceeded while your dashboard still shows available characters, check whether the API credentials are from the same Lara API plan and whether Vercel environment variables contain old credentials.'
+    });
   }
 };
