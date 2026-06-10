@@ -388,7 +388,7 @@
     }
 
     // For unknown templates, do NOT create mechanical examples by random word replacement.
-    // Bad examples are worse than no examples. The user can use "Generate with Puter AI" to rebuild them with Puter AI, then MyMemory fallback.
+    // Bad examples are worse than no examples. The user can use "Generate with OpenRouter AI" to rebuild them with Puter AI, then MyMemory fallback.
     return [];
   }
 
@@ -587,6 +587,219 @@
     const arr = raw.match(/\[[\s\S]*\]/);
     if (arr) { try { return JSON.parse(arr[0]); } catch {} }
     return null;
+  }
+
+
+  const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+  const OPENROUTER_SETTINGS_CLOUD_WORD = '__openrouter_settings__';
+  const OPENROUTER_FREE_MODEL_PRIORITY = [
+    'openrouter/free',
+    'openai/gpt-oss-20b:free',
+    'qwen/qwen3-coder:free',
+    'deepseek/deepseek-r1-0528:free',
+    'google/gemma-3n-e4b-it:free',
+    'mistralai/mistral-small-3.2-24b-instruct:free',
+    'meta-llama/llama-3.3-70b-instruct:free'
+  ];
+
+  function isFreeOpenRouterModelId(model) {
+    const id = cleanLine(model).toLowerCase();
+    return Boolean(id && (id === 'openrouter/free' || id.endsWith(':free')));
+  }
+
+  function openRouterModelAlias(model) {
+    const id = cleanLine(model).toLowerCase();
+    if (!id || id === 'auto' || id === 'free' || id === 'openrouter') return 'openrouter/free';
+    if (id === 'gpt-oss' || id === 'gpt-oss-20b' || id === 'openai/gpt-oss-20b') return 'openai/gpt-oss-20b:free';
+    if (id === 'qwen' || id === 'qwen3' || id === 'qwen-coder' || id === 'qwen/qwen3-coder') return 'qwen/qwen3-coder:free';
+    if (id === 'deepseek' || id === 'r1' || id === 'deepseek/deepseek-r1-0528') return 'deepseek/deepseek-r1-0528:free';
+    if (isFreeOpenRouterModelId(id)) return cleanLine(model);
+    return '';
+  }
+
+  function getOpenRouterConfig() {
+    const apiKey = String(localStorage.getItem('jm_openrouter_api_key') || localStorage.getItem('jm_chats_llm_api_key') || '').trim();
+    const storedModel = String(localStorage.getItem('jm_openrouter_model') || localStorage.getItem('jm_chats_llm_model') || 'openrouter/free').trim();
+    const model = openRouterModelAlias(storedModel) || 'openrouter/free';
+    if (storedModel && storedModel !== model) localStorage.setItem('jm_openrouter_model', model);
+    return { apiKey, model };
+  }
+
+  function saveOpenRouterConfigToLocal() {
+    const apiKey = String($('chatLlmKeyInput')?.value || '').trim();
+    const rawModel = String($('chatLlmModelInput')?.value || '').trim();
+    const model = openRouterModelAlias(rawModel || 'openrouter/free') || 'openrouter/free';
+    if (apiKey) localStorage.setItem('jm_openrouter_api_key', apiKey); else localStorage.removeItem('jm_openrouter_api_key');
+    localStorage.setItem('jm_openrouter_model', model);
+    // Keep old keys in sync so older cached code can still read them after one refresh.
+    if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey); else localStorage.removeItem('jm_chats_llm_api_key');
+    localStorage.setItem('jm_chats_llm_model', model);
+    if (rawModel && !isFreeOpenRouterModelId(model) && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Only free OpenRouter models are allowed. I switched to openrouter/free.';
+    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = model;
+    return { apiKey, model };
+  }
+
+  function isOpenRouterSettingsCloudItem(item) {
+    const key = String(item?.key || '').toLowerCase();
+    const word = String(item?.word || '').toLowerCase();
+    return key === 'setting:openrouter' || word === OPENROUTER_SETTINGS_CLOUD_WORD;
+  }
+
+  function makeOpenRouterSettingsCloudItem() {
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey && !cfg.model) return null;
+    const now = new Date().toISOString();
+    return {
+      kind: 'setting', hidden: true, key: 'setting:openrouter', word: OPENROUTER_SETTINGS_CLOUD_WORD,
+      apiKey: cfg.apiKey, model: cfg.model || 'openrouter/free', savedAt: now, updatedAt: now
+    };
+  }
+
+  function applyOpenRouterSettingsFromCloud(remoteWords = []) {
+    const item = (remoteWords || []).find(isOpenRouterSettingsCloudItem);
+    if (!item) return false;
+    const apiKey = String(item.apiKey || '').trim();
+    const model = openRouterModelAlias(String(item.model || 'openrouter/free').trim()) || 'openrouter/free';
+    if (apiKey) localStorage.setItem('jm_openrouter_api_key', apiKey);
+    localStorage.setItem('jm_openrouter_model', model);
+    if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey);
+    localStorage.setItem('jm_chats_llm_model', model);
+    return Boolean(apiKey || model);
+  }
+
+  function openRouterErrorMessage(status, data) {
+    const msg = data?.error?.message || data?.message || data?.error || data?.details || data?.raw || '';
+    if (status === 404) return 'OpenRouter API proxy is missing. Upload the full Vercel project folder, not the HTML file only.';
+    if (status === 401 || status === 403) return 'OpenRouter rejected the API key. Check the key or create a new OpenRouter key.';
+    if (status === 402) return 'OpenRouter says this model is not free or has no credits. Use openrouter/free or another :free model.';
+    if (status === 429) return 'OpenRouter free model rate limit. Try later or keep model as openrouter/free.';
+    return msg || `OpenRouter failed (${status})`;
+  }
+
+  async function fetchOpenRouterFreeModels(apiKey = '') {
+    try {
+      const res = await fetch('/api/openrouter-models', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.models)) return data.models;
+    } catch (e) { console.warn('OpenRouter proxy model lookup failed:', e); }
+    try {
+      const res = await fetch(`${OPENROUTER_BASE_URL}/models`, apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : undefined);
+      const data = await res.json().catch(() => ({}));
+      const models = (Array.isArray(data?.data) ? data.data : [])
+        .filter(m => isFreeOpenRouterModelId(m?.id || ''))
+        .map(m => ({ id: m.id, name: m.name || m.id }));
+      return [{ id: 'openrouter/free', name: 'Free Models Router' }, ...models];
+    } catch (e) { console.warn('OpenRouter direct model lookup failed:', e); return [{ id: 'openrouter/free', name: 'Free Models Router' }]; }
+  }
+
+  async function getOpenRouterModelCandidates(cfg = {}) {
+    const out = [];
+    const add = (model) => { const id = openRouterModelAlias(model); if (id && !out.some(x => x.toLowerCase() === id.toLowerCase())) out.push(id); };
+    add(cfg.model || 'openrouter/free');
+    add('openrouter/free');
+    try {
+      const models = await fetchOpenRouterFreeModels(cfg.apiKey || '');
+      for (const m of models || []) add(m?.id || m);
+    } catch {}
+    for (const m of OPENROUTER_FREE_MODEL_PRIORITY) add(m);
+    return out.slice(0, 12);
+  }
+
+  async function callOpenRouterJson(prompt, { temperature = 0.25, maxTokens = 900, system = '' } = {}) {
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) throw new Error('OpenRouter key is missing. Open Menu → OpenRouter AI settings and save the key first.');
+    const modelsToTry = await getOpenRouterModelCandidates(cfg);
+    let lastError = '';
+    for (const model of modelsToTry) {
+      const payload = {
+        apiKey: cfg.apiKey,
+        model,
+        messages: [
+          { role: 'system', content: system || 'Return strict JSON only. No markdown. No explanations.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature,
+        max_tokens: maxTokens
+      };
+      try {
+        let res = await fetch('/api/openrouter-chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        let raw = await res.text();
+        let data = {}; try { data = JSON.parse(raw); } catch { data = { raw }; }
+        if (!res.ok) {
+          lastError = openRouterErrorMessage(res.status, data);
+          if (res.status === 404) {
+            res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${cfg.apiKey}`,
+                'HTTP-Referer': location.origin,
+                'X-OpenRouter-Title': 'Jungle Movie Learner'
+              },
+              body: JSON.stringify({ model, messages: payload.messages, temperature, max_tokens: maxTokens, stream: false })
+            });
+            raw = await res.text();
+            try { data = JSON.parse(raw); } catch { data = { raw }; }
+            if (!res.ok) { lastError = openRouterErrorMessage(res.status, data); continue; }
+          } else {
+            continue;
+          }
+        }
+        const content = data?.content || data?.choices?.[0]?.message?.content || data?.output || data?.message || data?.raw || raw;
+        const parsed = parseJsonLoose(content) || { raw: content };
+        parsed.__model = model;
+        return parsed;
+      } catch (e) {
+        lastError = e.message || String(e);
+        console.warn('OpenRouter model failed:', model, e);
+      }
+    }
+    throw new Error(lastError || 'No free OpenRouter model returned a valid response.');
+  }
+
+  async function callOpenRouterText(prompt, { temperature = 0.2, maxTokens = 350, system = '' } = {}) {
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) throw new Error('OpenRouter key is missing.');
+    const modelsToTry = await getOpenRouterModelCandidates(cfg);
+    let lastError = '';
+    for (const model of modelsToTry) {
+      const payload = {
+        apiKey: cfg.apiKey,
+        model,
+        messages: [
+          { role: 'system', content: system || 'Answer with the requested final text only.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature,
+        max_tokens: maxTokens
+      };
+      try {
+        let res = await fetch('/api/openrouter-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        let raw = await res.text();
+        let data = {}; try { data = JSON.parse(raw); } catch { data = { raw }; }
+        if (!res.ok) {
+          lastError = openRouterErrorMessage(res.status, data);
+          if (res.status === 404) {
+            res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}`, 'HTTP-Referer': location.origin, 'X-OpenRouter-Title': 'Jungle Movie Learner' },
+              body: JSON.stringify({ model, messages: payload.messages, temperature, max_tokens: maxTokens, stream: false })
+            });
+            raw = await res.text();
+            try { data = JSON.parse(raw); } catch { data = { raw }; }
+            if (!res.ok) { lastError = openRouterErrorMessage(res.status, data); continue; }
+          } else {
+            continue;
+          }
+        }
+        const content = data?.content || data?.choices?.[0]?.message?.content || data?.output || data?.message || data?.raw || raw;
+        return cleanLine(String(content || ''));
+      } catch (e) { lastError = e.message || String(e); console.warn('OpenRouter text call failed:', model, e); }
+    }
+    throw new Error(lastError || 'OpenRouter failed.');
   }
 
   function chatsLlmBaseUrl() {
@@ -859,10 +1072,29 @@ Usage in Arabic: ${cleanLine(template?.usageAr || '')}`;
     }
   }
 
+  async function fetchTemplateFromOpenRouter(line) {
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) return null;
+    const parsed = await callOpenRouterJson(buildTemplateExtractPrompt(line), {
+      temperature: 0.22,
+      maxTokens: 950,
+      system: 'You are an English tutor. Return valid JSON only for one reusable sentence template.'
+    });
+    return normalizeAiTemplate(parsed, line);
+  }
+
   async function extractTemplateFromLineAsync(line) {
-    // Chats-LLM is no longer used. The app extracts templates locally,
-    // then uses MyMemory to find/translate natural examples.
-    return extractTemplateFromLine(line);
+    const local = extractTemplateFromLine(line);
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) return local;
+    try {
+      const ai = await fetchTemplateFromOpenRouter(line);
+      if (ai?.pattern && /\[[^\]]+\]/.test(ai.pattern)) return ai;
+    } catch (e) {
+      console.warn('OpenRouter template extraction failed, using local template:', e);
+      setStatus('OpenRouter template extraction failed. Local template fallback is active.');
+    }
+    return local;
   }
 
   async function translateTemplateMeaning(template, contextEn = '') {
@@ -1244,6 +1476,62 @@ Good output example:
   }
 
 
+
+  async function fetchTemplateExamplesFromOpenRouter(template, contextEn = '') {
+    if (!template?.pattern || !/\[[^\]]+\]/.test(template.pattern)) return [];
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) return [];
+    const prompt = buildPuterTemplateExamplesPrompt(template, contextEn);
+    const parsed = await callOpenRouterJson(prompt, {
+      temperature: 0.28,
+      maxTokens: 900,
+      system: 'You are an expert English tutor. Return JSON only: an array of exactly 3 objects, each with en and ar. Use natural daily-life English and natural Arabic.'
+    });
+    const rawList = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.examples) ? parsed.examples : []);
+    return sanitizeTemplateExamples(rawList.map(x => ({
+      en: cleanLine(x?.en || x?.english || ''),
+      ar: cleanLine(x?.ar || x?.arabic || ''),
+      source: 'openrouter-ai'
+    })), template.pattern, contextEn || template.source || '').slice(0, 3);
+  }
+
+  function buildOpenRouterSubtitlePrompt(text) {
+    return buildPuterSubtitlePrompt(text) + '\n\nIMPORTANT: Return the Arabic translation only, no JSON and no notes.';
+  }
+
+  function buildOpenRouterSubtitleBatchPrompt(items) {
+    return buildPuterSubtitleBatchPrompt(items);
+  }
+
+  async function translateOpenRouterSubtitle(text) {
+    text = cleanLine(text || '');
+    if (!text) return '';
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) throw new Error('OpenRouter key is missing.');
+    const ar = await callOpenRouterText(buildOpenRouterSubtitlePrompt(text), {
+      temperature: 0.18,
+      maxTokens: 300,
+      system: 'You are a professional subtitle translator. Return Arabic translation only.'
+    });
+    const clean = cleanPuterArabicTranslation(ar);
+    if (clean) return clean;
+    throw new Error('OpenRouter returned empty translation.');
+  }
+
+  async function translateOpenRouterSubtitleItems(items) {
+    items = (items || []).map(x => ({ index: Number(x.index), text: cleanLine(x.text || x.en || '') })).filter(x => x.text);
+    if (!items.length) return [];
+    const cfg = getOpenRouterConfig();
+    if (!cfg.apiKey) throw new Error('OpenRouter key is missing.');
+    const parsed = await callOpenRouterJson(buildOpenRouterSubtitleBatchPrompt(items), {
+      temperature: 0.18,
+      maxTokens: Math.min(2200, 260 + items.length * 190),
+      system: 'You are a professional subtitle translator. Return valid JSON only.'
+    });
+    const rawList = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.translations) ? parsed.translations : []);
+    return rawList.map(x => ({ index: Number(x?.index), ar: cleanPuterArabicTranslation(x?.ar || x?.arabic || x?.translation || '') })).filter(x => Number.isFinite(x.index) && x.ar);
+  }
+
   const PUTER_SUBTITLE_MODELS = ['gpt-5.4-nano', 'gpt-5-nano', 'gpt-4.1-nano', 'gpt-4o-mini'];
 
   function cleanPuterArabicTranslation(text) {
@@ -1339,6 +1627,15 @@ RULES:
   }
 
   async function translateSubtitlePreferred(text) {
+    const cfg = getOpenRouterConfig();
+    if (cfg.apiKey) {
+      try {
+        return await translateOpenRouterSubtitle(text);
+      } catch (e) {
+        console.warn('OpenRouter subtitle translation unavailable. Falling back to Puter AI:', e);
+        setStatus('OpenRouter unavailable. Puter AI fallback is active.');
+      }
+    }
     try {
       return await translatePuterSubtitle(text);
     } catch (e) {
@@ -1350,6 +1647,16 @@ RULES:
   }
 
   async function translateSubtitlePreferredItems(items) {
+    const cfg = getOpenRouterConfig();
+    if (cfg.apiKey) {
+      try {
+        const rows = await translateOpenRouterSubtitleItems(items);
+        if (rows.length) return rows;
+      } catch (e) {
+        console.warn('OpenRouter subtitle batch unavailable. Falling back to Puter AI:', e);
+        setStatus('OpenRouter batch unavailable. Puter AI fallback is active.');
+      }
+    }
     try {
       return await translatePuterSubtitleItems(items);
     } catch (e) {
@@ -1426,12 +1733,22 @@ RULES:
 
     // Priority now:
     // 1) Real matching lines already present in the uploaded subtitle file.
-    // 2) Puter AI generates natural daily-life examples from the template.
-    // 3) MyMemory translation-memory matches and translation fallback.
-    // 4) Safe daily-life examples built from the template, then translated with MyMemory.
-    // Lara is reserved for subtitle-line translation only.
+    // 2) OpenRouter free models if a key is saved.
+    // 3) Puter AI fallback generates natural daily-life examples from the template.
+    // 4) MyMemory translation-memory matches and translation fallback.
+    // 5) Safe daily-life examples built from the template, then translated with MyMemory.
     let candidates = [];
     candidates = candidates.concat(examplesFromCurrentSubtitles(template, contextEn));
+
+    if (candidates.length < 3 && getOpenRouterConfig().apiKey) {
+      try {
+        const openRouterExamples = await fetchTemplateExamplesFromOpenRouter(template, contextEn || template.source || '');
+        candidates = candidates.concat(openRouterExamples);
+      } catch (e) {
+        console.warn('OpenRouter examples unavailable, falling back to Puter AI:', e);
+        setStatus('OpenRouter examples unavailable. Puter AI fallback is active...');
+      }
+    }
 
     if (candidates.length < 3) {
       try {
@@ -1471,7 +1788,7 @@ RULES:
   async function refreshTemplateExamplesByIndex(index) {
     const item = state.savedWords[Number(index)];
     if (!item || item.kind !== 'template') return toast('Template not found');
-    setStatus('Generating natural daily examples with Puter AI...');
+    setStatus('Generating natural daily examples with OpenRouter AI...');
     const template = {
       pattern: item.word,
       source: item.contextEn || '',
@@ -1486,8 +1803,8 @@ RULES:
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast('Examples updated with Puter AI');
-    setStatus('Template examples updated with Puter AI and synced');
+    toast('Examples updated with AI');
+    setStatus('Template examples updated with OpenRouter/Puter and synced');
   }
 
   async function refreshAllTemplateExamples() {
@@ -1495,7 +1812,7 @@ RULES:
       .map((item, index) => ({ item, index }))
       .filter(x => x.item && x.item.kind === 'template');
     if (!templateIndexes.length) return toast('No saved templates yet');
-    setStatus('Improving templates with Puter AI examples...');
+    setStatus('Improving templates with OpenRouter/Puter examples...');
     let count = 0;
     for (const { item, index } of templateIndexes) {
       const template = { pattern: item.word, source: item.contextEn || '', slot: item.templateSlot || '', examples: item.examples || [] };
@@ -1508,7 +1825,7 @@ RULES:
     debounceSave();
     scheduleCloudLibrarySync();
     showSaved('templates');
-    toast(`${count} template examples improved with Puter AI`);
+    toast(`${count} template examples improved with AI`);
     setStatus('MyMemory template examples saved to cloud sync queue');
   }
 
@@ -2398,22 +2715,11 @@ RULES:
   const CHAT_LLM_SETTINGS_CLOUD_WORD = '__chats_llm_settings__';
 
   function getChatLlmConfig() {
-    const apiKey = String(localStorage.getItem('jm_chats_llm_api_key') || '').trim();
-    const storedModel = String(localStorage.getItem('jm_chats_llm_model') || '').trim();
-    const model = chatLlmFreeAlias(storedModel);
-    if (storedModel && !model) localStorage.removeItem('jm_chats_llm_model');
-    return { apiKey, model };
+    return getOpenRouterConfig();
   }
 
   function saveChatLlmConfigToLocal() {
-    const apiKey = String($('chatLlmKeyInput')?.value || '').trim();
-    const rawModel = String($('chatLlmModelInput')?.value || '').trim();
-    const model = chatLlmFreeAlias(rawModel);
-    if (apiKey) localStorage.setItem('jm_chats_llm_api_key', apiKey); else localStorage.removeItem('jm_chats_llm_api_key');
-    if (model) localStorage.setItem('jm_chats_llm_model', model); else localStorage.removeItem('jm_chats_llm_model');
-    if (rawModel && !model && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'This is not a free model. I ignored it and will auto-select a free model only.';
-    if (model && $('chatLlmModelInput')) $('chatLlmModelInput').value = model;
-    return { apiKey, model };
+    return saveOpenRouterConfigToLocal();
   }
 
   function isChatLlmSettingsCloudItem(item) {
@@ -2423,7 +2729,7 @@ RULES:
   }
 
   function isHiddenCloudSettingsItem(item) {
-    return isLaraSettingsCloudItem(item) || isChatLlmSettingsCloudItem(item);
+    return isLaraSettingsCloudItem(item) || isChatLlmSettingsCloudItem(item) || isOpenRouterSettingsCloudItem(item);
   }
 
   function makeChatLlmSettingsCloudItem() {
@@ -2455,7 +2761,7 @@ RULES:
   async function saveChatLlmSettingsToCloud({ silent = false } = {}) {
     const cfg = getChatLlmConfig();
     if (!cfg.apiKey) {
-      if (!silent) toast('Enter Chats-LLM key first');
+      if (!silent) toast('Enter OpenRouter key first');
       return false;
     }
     return await syncSavedItemsToCloud({ silent, reason: 'chats-llm-settings' });
@@ -2463,10 +2769,10 @@ RULES:
 
   function openChatLlmSettings(message = '') {
     openMenu(false);
-    const cfg = getChatLlmConfig();
+    const cfg = getOpenRouterConfig();
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = cfg.apiKey;
-    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model;
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'Puter AI is active. No API key is needed. Template examples use Puter AI first, then MyMemory fallback; Puter AI also translates subtitles. Lara is kept only as an optional backup/test setting.';
+    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = cfg.model || 'openrouter/free';
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = message || 'OpenRouter AI is active when you save a key. Free models only. It will translate subtitle lines and generate template examples first, then Puter AI/MyMemory fallbacks are used if OpenRouter fails.';
     openModal('aiTemplateModal');
   }
 
@@ -2483,7 +2789,7 @@ RULES:
       .filter(x => !isHiddenCloudSettingsItem(x))
       .map(normalizeSavedWord)
       .filter(x => x.word && !isHiddenCloudSettingsItem(x));
-    const hiddenSettings = [makeLaraSettingsCloudItem(), makeChatLlmSettingsCloudItem()].filter(Boolean);
+    const hiddenSettings = [makeLaraSettingsCloudItem(), makeChatLlmSettingsCloudItem(), makeOpenRouterSettingsCloudItem()].filter(Boolean);
     return [...visibleWords, ...hiddenSettings];
   }
 
@@ -2594,7 +2900,7 @@ RULES:
 
   async function translateLine(idx) {
     const item = state.subtitles[idx]; if (!item) return;
-    setStatus('Translating line with Puter AI...');
+    setStatus('Translating line with OpenRouter/Puter...');
     try {
       item.ar = await translateSubtitlePreferred(cleanLine(item.en));
       $('ar-' + idx) && ($('ar-' + idx).innerHTML = escapeHtml(item.ar));
@@ -2794,8 +3100,8 @@ RULES:
     const key = lineKey(item);
     let ar = item.ar || '';
     if (!ar && translateIfMissing) {
-      setStatus('Translating line with Puter AI before saving...');
-      try { ar = await translateSubtitlePreferred(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch (e) { console.warn(e); ar = ''; setStatus('Puter AI translation failed while saving line. Saved without Arabic translation.'); }
+      setStatus('Translating line with OpenRouter/Puter before saving...');
+      try { ar = await translateSubtitlePreferred(cleanLine(item.en)); item.ar = ar; if ($('ar-' + idx)) $('ar-' + idx).innerHTML = escapeHtml(ar); if (idx === state.lastIndex) updateDock(item, state.lastWordIndex); } catch (e) { console.warn(e); ar = ''; setStatus('AI translation failed while saving line. Saved without Arabic translation.'); }
     }
     const existing = state.savedLines.find(x => x.key === key);
     if (existing) { existing.ar = existing.ar || ar; toast('Line already saved'); }
@@ -2869,13 +3175,13 @@ RULES:
     const wordItems = isTemplates ? state.savedWords.filter(x => x.kind === 'template') : (isPhrases ? state.savedWords.filter(x => x.kind === 'phrase') : state.savedWords.filter(x => x.kind === 'word'));
     const arr = (isWords || isPhrases || isTemplates) ? wordItems : state.savedLines;
     const countLabel = isTemplates ? 'templates' : (isPhrases ? 'phrases' : (isWords ? 'words' : 'lines'));
-    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small>${isTemplates ? '<div class="saved-actions template-clean-actions"><button class="small-btn" data-refresh-all-template-examples>Generate all with Puter AI</button><button class="small-btn danger" data-delete-selected-templates>Delete selected</button><button class="small-btn danger" data-delete-all-templates>Delete all templates</button></div><small class="delete-hint">Tick templates you want to remove, or open one template and delete it only. Deletions sync to Supabase.</small>' : ''}</div>`;
+    const header = `<div class="saved-folder-head"><b>${arr.length} saved ${countLabel}</b><small>Tap any title to open meaning, context, examples, and review options.</small>${isTemplates ? '<div class="saved-actions template-clean-actions"><button class="small-btn" data-refresh-all-template-examples>Generate all with OpenRouter/Puter</button><button class="small-btn danger" data-delete-selected-templates>Delete selected</button><button class="small-btn danger" data-delete-all-templates>Delete all templates</button></div><small class="delete-hint">Tick templates you want to remove, or open one template and delete it only. Deletions sync to Supabase.</small>' : ''}</div>`;
     if (!arr.length) { body.innerHTML = header + '<p>No saved items yet.</p>'; openModal('savedModal'); return; }
     body.innerHTML = header + arr.map((x, i) => {
       if (isWords || isPhrases || isTemplates) {
         const originalIndex = state.savedWords.indexOf(x);
         const displayExamples = x.kind === 'template' ? sanitizeTemplateExamples(x.examples || [], x.word, x.contextEn || '') : (Array.isArray(x.examples) ? x.examples.slice(0,3) : []);
-        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">Subtitle / Puter AI / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
+        const examples = displayExamples.length ? `<div class="saved-section"><b>Examples <small class="example-source">Subtitle / OpenRouter / Puter / MyMemory</small></b>${displayExamples.slice(0,3).map(ex => `<div class="saved-example"><p dir="ltr">${escapeHtml(ex.en || ex)}</p>${ex.ar ? `<p dir="rtl">${escapeHtml(ex.ar)}</p>` : ''}</div>`).join('')}</div>` : '';
         const usage = x.kind === 'template' ? `<div class="saved-section template-usage"><b>When to use it</b>${x.templateUsageEn ? `<p dir="ltr">${escapeHtml(x.templateUsageEn)}</p>` : ''}${x.templateUsageAr ? `<p dir="rtl" class="ar">${escapeHtml(x.templateUsageAr)}</p>` : ''}${x.templateSlot ? `<small>Original slot: ${escapeHtml(x.templateSlot)}</small>` : ''}</div>` : '';
         const label = x.kind === 'template' ? 'Template' : (x.kind === 'phrase' ? 'Phrase' : 'Word');
         return `<details class="saved-details ${x.kind === 'phrase' ? 'phrase-item' : ''} ${x.kind === 'template' ? 'template-item' : ''}">
@@ -2885,7 +3191,7 @@ RULES:
             ${usage}
             ${x.contextEn ? `<div class="saved-section"><b>Movie context</b><p dir="ltr">${escapeHtml(x.contextEn)}</p>${x.contextAr ? `<p dir="rtl" class="ar">${escapeHtml(x.contextAr)}</p>` : ''}</div>` : ''}
             ${examples}
-            <div class="saved-actions">${x.kind === 'template' ? `<button class="small-btn" data-refresh-template-examples="${originalIndex}">Generate with Puter AI</button><button class="small-btn danger" data-delete-template-index="${originalIndex}">Delete template</button>` : ''}<button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
+            <div class="saved-actions">${x.kind === 'template' ? `<button class="small-btn" data-refresh-template-examples="${originalIndex}">Generate with OpenRouter AI</button><button class="small-btn danger" data-delete-template-index="${originalIndex}">Delete template</button>` : ''}<button class="small-btn" data-pp-word="${escapeHtml(x.word)}">PlayPhrase</button><button class="small-btn" data-review-one="word:${originalIndex}">Review</button></div>
           </div>
         </details>`;
       }
@@ -3074,6 +3380,7 @@ RULES:
         const remoteWordsRaw = Array.isArray(data.saved_words) ? data.saved_words : [];
         const restoredLara = applyLaraSettingsFromCloud(remoteWordsRaw);
         const restoredChatLlm = applyChatLlmSettingsFromCloud(remoteWordsRaw);
+        const restoredOpenRouter = applyOpenRouterSettingsFromCloud(remoteWordsRaw);
         const remoteWords = remoteWordsRaw.filter(x => !isHiddenCloudSettingsItem(x));
         if (merge) {
           state.savedLines = mergeByKey(state.savedLines, remoteLines, savedLineMergeKey, normalizeSavedLine);
@@ -3083,7 +3390,7 @@ RULES:
           state.savedWords = remoteWords.map(normalizeSavedWord).filter(x => x.word && !isHiddenCloudSettingsItem(x));
         }
         if (restoredLara && $('laraSettingsStatus')) $('laraSettingsStatus').textContent = 'Lara settings restored from cloud.';
-        if (restoredChatLlm && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings restored but not used. Puter AI is now used for template examples.';
+        if ((restoredOpenRouter || restoredChatLlm) && $('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'OpenRouter settings restored from cloud.';
         writeJSON('jm_saved_lines', state.savedLines);
         writeJSON('jm_saved_words', state.savedWords);
         saveState();
@@ -3462,32 +3769,42 @@ RULES:
   };
 
   if ($('saveChatLlmSettingsBtn')) $('saveChatLlmSettingsBtn').onclick = async () => {
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Puter AI is active. No API key is needed. Template examples use Puter AI, and saved templates still sync to Supabase.';
-    toast('No AI key needed');
+    const cfg = saveOpenRouterConfigToLocal();
+    if (!cfg.apiKey) { if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Please enter your OpenRouter API key first.'; return toast('Missing OpenRouter key'); }
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Saving OpenRouter settings locally and to Supabase...';
+    const ok = await syncSavedItemsToCloud({ silent: true, reason: 'openrouter-settings' });
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = ok ? `OpenRouter saved. Free model: ${cfg.model || 'openrouter/free'}.` : 'OpenRouter saved locally, but cloud sync failed.';
+    toast(ok ? 'OpenRouter saved to cloud' : 'OpenRouter saved locally');
   };
   if ($('testChatLlmSettingsBtn')) $('testChatLlmSettingsBtn').onclick = async () => {
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Testing Puter AI template examples...';
+    const cfg = saveOpenRouterConfigToLocal();
+    if (!cfg.apiKey) { if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Please enter your OpenRouter API key first.'; return toast('Missing OpenRouter key'); }
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Testing OpenRouter free model...';
     try {
+      const ar = await translateOpenRouterSubtitle('I have got some time.');
       const sampleTemplate = {
         pattern: 'How many times have I told you not to [do something]?',
         source: 'How many times have I told you not to wake me up like that?',
         slot: 'wake me up like that',
         usageEn: 'Use it when someone keeps doing something you warned them not to do.'
       };
-      const examples = await generateTemplateExamplesWithMyMemory(sampleTemplate, sampleTemplate.source);
-      if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = examples.length ? `Puter AI works. Sample: ${examples[0].en} — ${examples[0].ar || 'Arabic translation pending'}` : 'Puter AI returned no valid examples. MyMemory fallback will still work.';
-      toast(examples.length ? 'Puter AI examples test passed' : 'No valid examples');
+      const examples = await fetchTemplateExamplesFromOpenRouter(sampleTemplate, sampleTemplate.source);
+      await syncSavedItemsToCloud({ silent: true, reason: 'openrouter-settings-test' });
+      if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = examples.length ? `OpenRouter works. Translation: ${ar}. Example: ${examples[0].en} — ${examples[0].ar || ''}` : `OpenRouter translation works: ${ar}. Examples fallback will use Puter/MyMemory.`;
+      toast('OpenRouter test passed');
     } catch (e) {
       if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = e.message || String(e);
-      toast('Puter AI examples test failed');
+      toast('OpenRouter test failed');
     }
   };
   if ($('clearChatLlmSettingsBtn')) $('clearChatLlmSettingsBtn').onclick = async () => {
+    localStorage.removeItem('jm_openrouter_api_key'); localStorage.removeItem('jm_openrouter_model');
     localStorage.removeItem('jm_chats_llm_api_key'); localStorage.removeItem('jm_chats_llm_model');
     if ($('chatLlmKeyInput')) $('chatLlmKeyInput').value = '';
-    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = '';
-    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'Old AI settings cleared locally. Puter AI does not require a key.';
-    toast('Old AI settings cleared');
+    if ($('chatLlmModelInput')) $('chatLlmModelInput').value = 'openrouter/free';
+    await syncSavedItemsToCloud({ silent: true, reason: 'openrouter-clear' });
+    if ($('chatLlmSettingsStatus')) $('chatLlmSettingsStatus').textContent = 'OpenRouter settings cleared locally and synced. Puter/MyMemory fallbacks still work.';
+    toast('OpenRouter cleared');
   };
 
 

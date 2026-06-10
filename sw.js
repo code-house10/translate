@@ -1,36 +1,17 @@
-const CACHE_NAME = 'jungle-movie-puter-subtitles-v1';
-const APP_SHELL = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js'
-];
-
+const CACHE_NAME = 'jungle-movie-openrouter-free-v1';
+const ASSETS = ['./', './index.html', './style.css?v=openrouter-free-v1', './app.js?v=openrouter-free-v1'];
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).catch(() => null));
-  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
-
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
-  );
-  self.clients.claim();
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
-
 self.addEventListener('fetch', event => {
-  const req = event.request;
-  const url = new URL(req.url);
-
-  // Network-first for app shell so Vercel updates appear immediately.
-  // This avoids seeing an old cached UI like "MyMemory Template Examples" after uploading a new version.
-  if (url.origin === location.origin && ['document', 'script', 'style'].includes(req.destination)) {
-    event.respondWith(
-      fetch(req, { cache: 'no-store' }).then(res => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(req, clone)).catch(() => null);
-        return res;
-      }).catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
-    );
-  }
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
+  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
+    const clone = response.clone();
+    if (response.ok && url.origin === location.origin) caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone)).catch(() => {});
+    return response;
+  }).catch(() => cached)));
 });
